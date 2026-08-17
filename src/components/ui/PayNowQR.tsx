@@ -29,7 +29,7 @@ export function PayNowQR({
   if (!src) {
     return (
       <div
-        className="animate-pulse rounded-xl bg-white/10"
+        className="animate-pulse rounded-xl bg-black/[0.06]"
         style={{ width: size, height: size }}
       />
     );

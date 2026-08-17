@@ -40,7 +40,7 @@ function Toast() {
   return (
     <div className="pointer-events-none fixed bottom-24 left-1/2 z-[300] w-[calc(100%-32px)] max-w-[400px] -translate-x-1/2">
       <div
-        className="rounded-2xl border border-accent/25 bg-[#1A1714] px-4 py-3 text-sm font-semibold text-accent shadow-lg"
+        className="rounded-2xl border border-accent/25 bg-card px-4 py-3 text-sm font-semibold text-accent shadow-lg"
         style={{ animation: "toast-in 0.2s ease-out" }}
       >
         {toast}
@@ -57,16 +57,16 @@ function Fab() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-[76px] right-[max(24px,calc(50%-430px/2+24px))] z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-bg shadow-[0_8px_24px_rgba(78,205,196,0.32)]"
+        className="fixed bottom-[76px] right-[max(24px,calc(50%-430px/2+24px))] z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-white shadow-[0_8px_24px_rgba(42,157,143,0.32)]"
         aria-label="New bill"
       >
         <Plus size={26} strokeWidth={2.5} />
       </button>
       {open && (
-        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/70 p-4">
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-4">
           <button className="absolute inset-0" onClick={() => setOpen(false)} aria-label="Close" />
-          <div className="relative mb-[72px] w-full max-w-[420px] rounded-[20px] border border-white/10 bg-card-2 p-5">
-            <div className="mx-auto mb-5 h-1 w-9 rounded-full bg-white/10" />
+          <div className="relative mb-[72px] w-full max-w-[420px] rounded-[20px] border border-border bg-card p-5">
+            <div className="mx-auto mb-5 h-1 w-9 rounded-full bg-black/10" />
             {[
               {
                 icon: Camera,
@@ -98,13 +98,13 @@ function Fab() {
                   }}
                   className={`mb-2.5 flex w-full items-center gap-4 rounded-[14px] p-[15px] text-left last:mb-0 ${
                     opt.primary
-                      ? "border border-accent/20 bg-gradient-to-br from-accent/10 to-[#45B7D1]/10"
-                      : "border border-white/10 bg-white/[0.03]"
+                      ? "border border-accent/20 bg-gradient-to-br from-accent/10 to-accent/5"
+                      : "border border-border bg-card-2"
                   }`}
                 >
                   <span
                     className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-                      opt.primary ? "bg-accent/15 text-accent" : "bg-white/5 text-dim"
+                      opt.primary ? "bg-accent/15 text-accent" : "bg-black/[0.04] text-dim"
                     }`}
                   >
                     <Icon size={20} />
@@ -139,7 +139,7 @@ export function MockupBar() {
   const portalToken = onPortal ? pathname.split("/settle/")[1]?.split("/")[0] : null;
 
   return (
-    <div className="sticky top-0 z-[80] space-y-1 border-b border-white/5 bg-[#0A0908] px-2 py-1.5 text-[11px]">
+    <div className="sticky top-0 z-[80] space-y-1 border-b border-border bg-card px-2 py-1.5 text-[11px]">
       <div className="flex items-center gap-1 overflow-x-auto">
         <span className="w-8 shrink-0 px-0.5 font-bold uppercase tracking-wider text-muted">
           Me
@@ -154,7 +154,7 @@ export function MockupBar() {
                 if (onPortal) router.push("/");
               }}
               className={`shrink-0 rounded-full px-2.5 py-1 font-semibold ${
-                active ? "bg-accent/20 text-accent" : "bg-white/5 text-dim"
+                active ? "bg-accent/20 text-accent" : "bg-black/[0.04] text-dim"
               }`}
             >
               {u.name}
@@ -177,7 +177,7 @@ export function MockupBar() {
               key={u.shareToken}
               href={`/settle/${u.shareToken}`}
               className={`shrink-0 rounded-full px-2.5 py-1 font-semibold ${
-                active ? "bg-accent/20 text-accent" : "bg-white/5 text-dim"
+                active ? "bg-accent/20 text-accent" : "bg-black/[0.04] text-dim"
               }`}
             >
               {u.name}

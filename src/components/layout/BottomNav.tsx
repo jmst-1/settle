@@ -20,7 +20,7 @@ export function BottomNav() {
   ).length;
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-50 flex w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-[#111009] pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed bottom-0 left-1/2 z-50 flex w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]">
       {TABS.map((tab) => {
         const active =
           tab.href === "/"
@@ -37,9 +37,9 @@ export function BottomNav() {
             {active && (
               <span className="absolute left-1/2 top-0 h-0.5 w-6 -translate-x-1/2 rounded-full bg-accent" />
             )}
-            <Icon size={20} className={active ? "text-accent" : "text-[#3A3632]"} />
+            <Icon size={20} className={active ? "text-accent" : "text-muted"} />
             <span
-              className={`text-[10px] font-bold tracking-wide ${active ? "text-accent" : "text-[#3A3632]"}`}
+              className={`text-[10px] font-bold tracking-wide ${active ? "text-accent" : "text-muted"}`}
             >
               {tab.label}
             </span>

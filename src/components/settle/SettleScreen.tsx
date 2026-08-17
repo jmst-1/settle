@@ -109,7 +109,7 @@ export function SettleScreen() {
                       <div key={`${tab.creatorId}-${txn.from}-${txn.to}`} className="card">
                         <div className="flex items-center gap-3 px-4 py-3.5">
                           <Avatar name={txn.from} names={[txn.from, txn.to]} size={34} />
-                          <span className="text-xl text-[#3A3632]">→</span>
+                          <span className="text-xl text-muted">→</span>
                           <Avatar name={txn.to} names={[txn.from, txn.to]} size={34} />
                           <div className="min-w-0 flex-1">
                             <div className="text-[13px] font-bold">
@@ -119,7 +119,7 @@ export function SettleScreen() {
                             </div>
                             {pn && <div className="mt-0.5 text-[11px] text-muted">{pn}</div>}
                           </div>
-                          <Amt value={txn.amount} color="#4ECDC4" size={18} />
+                          <Amt value={txn.amount} color="var(--accent)" size={18} />
                         </div>
                         <Perf />
                         <div className="flex gap-2 p-4">
@@ -174,7 +174,7 @@ export function SettleScreen() {
               <button
                 key={`${p.creatorId}-${p.a}-${p.b}`}
                 onClick={() => undoPair(p.a, p.b, p.creatorId)}
-                className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5 text-left text-[13px] text-dim"
+                className="flex items-center justify-between rounded-xl border border-border bg-card-2 px-3 py-2.5 text-left text-[13px] text-dim"
               >
                 <span>
                   Undo {p.a} ↔ {p.b} · {creatorName(users, p.creatorId)}&apos;s tab
@@ -235,7 +235,7 @@ function ShareLinkPreview({ from, amount }: { from: string; amount: number }) {
   const [copied, setCopied] = useState(false);
   return (
     <div>
-      <div className="mb-4 rounded-xl border border-white/10 bg-black/30 p-3 font-mono text-[12px] leading-relaxed text-dim">
+      <div className="mb-4 rounded-xl border border-border bg-card-2 p-3 font-mono text-[12px] leading-relaxed text-dim">
         {text}
       </div>
       {token && (

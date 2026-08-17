@@ -1,22 +1,22 @@
 export const PERSON_COLORS = [
-  "#4ECDC4",
-  "#FF6B6B",
-  "#45B7D1",
-  "#FFEAA7",
-  "#DDA0DD",
-  "#96CEB4",
-  "#F7DC6F",
-  "#BB8FCE",
-  "#85C1E9",
-  "#F0A500",
+  "#2A9D8F",
+  "#E24B4B",
+  "#2E8BB8",
+  "#C9A227",
+  "#B07CB0",
+  "#3D9A7A",
+  "#C9A227",
+  "#9B7BB8",
+  "#5BA4C9",
+  "#D4920B",
 ] as const;
 
 const COLOR_BY_NAME: Record<string, string> = {
-  Alice: "#4ECDC4",
-  Bob: "#FF6B6B",
-  Con: "#45B7D1",
-  Dana: "#FFEAA7",
-  Alex: "#DDA0DD",
+  Alice: "#2A9D8F",
+  Bob: "#E24B4B",
+  Con: "#2E8BB8",
+  Dana: "#C9A227",
+  Alex: "#B07CB0",
 };
 
 export function nameColor(name: string, allNames: string[] = []): string {
