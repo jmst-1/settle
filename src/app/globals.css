@@ -7,14 +7,14 @@
   --card: #ffffff;
   --card-2: #fbf8f4;
   --border: rgba(28, 25, 23, 0.08);
-  --accent: #2a9d8f;
-  --accent-2: #238b80;
+  --accent: #c4452d;
+  --accent-2: #a33824;
   --muted: #6f6a64;
   --dim: #5c5752;
   --text: #1c1917;
-  --danger: #d64545;
-  --warn: #c9a227;
-  --ok: #3d9a7a;
+  --danger: #c4452d;
+  --warn: #c4a035;
+  --ok: #9a7a32;
 }
 
 html,
@@ -43,7 +43,7 @@ select {
     margin: 0 16px;
   }
   .btn-primary {
-    @apply w-full rounded-[14px] bg-gradient-to-br from-accent to-accent-2 py-4 font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-30;
+    @apply w-full rounded-[14px] bg-accent py-4 font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-30;
   }
   .btn-ghost {
     @apply w-full rounded-[14px] border border-border bg-transparent py-3.5 font-semibold text-dim;

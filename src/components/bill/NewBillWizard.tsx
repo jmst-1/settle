@@ -391,8 +391,8 @@ export function NewBillWizard() {
                   onClick={() => setEqualConfirm(true)}
                   className="card w-full text-left"
                   style={{
-                    border: "1px solid rgba(42,157,143,0.28)",
-                    background: "linear-gradient(135deg,rgba(42,157,143,0.10),rgba(42,157,143,0.03))",
+                    border: "1px solid rgba(196,69,45,0.28)",
+                    background: "rgba(196,69,45,0.08)",
                   }}
                 >
                   <div className="flex items-center gap-4 p-4">
@@ -593,8 +593,8 @@ function SplitPicker({
               onClick={() => setSelected((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]))}
               className="flex items-center gap-3 rounded-xl px-3.5 py-2.5"
               style={{
-                background: selected.includes(n) ? "rgba(42,157,143,0.1)" : "rgba(28,25,23,0.03)",
-                border: `1px solid ${selected.includes(n) ? "rgba(42,157,143,0.4)" : "rgba(28,25,23,0.08)"}`,
+                background: selected.includes(n) ? "rgba(196,69,45,0.1)" : "rgba(28,25,23,0.03)",
+                border: `1px solid ${selected.includes(n) ? "rgba(196,69,45,0.4)" : "rgba(28,25,23,0.08)"}`,
               }}
             >
               <Avatar name={n} names={names} />

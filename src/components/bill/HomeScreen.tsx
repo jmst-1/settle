@@ -52,7 +52,7 @@ export function HomeScreen() {
         </div>
       ) : (
         <>
-          <div className="mx-5 mb-5 rounded-[18px] border border-accent/20 bg-gradient-to-br from-accent/10 to-accent/5 p-5">
+          <div className="mx-5 mb-5 rounded-[18px] border border-border bg-card-2 p-5">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-danger">

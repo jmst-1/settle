@@ -57,7 +57,7 @@ function Fab() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-[76px] right-[max(24px,calc(50%-430px/2+24px))] z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-white shadow-[0_8px_24px_rgba(42,157,143,0.32)]"
+        className="fixed bottom-[76px] right-[max(24px,calc(50%-430px/2+24px))] z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-accent text-white shadow-[0_8px_24px_rgba(196,69,45,0.32)]"
         aria-label="New bill"
       >
         <Plus size={26} strokeWidth={2.5} />
@@ -98,7 +98,7 @@ function Fab() {
                   }}
                   className={`mb-2.5 flex w-full items-center gap-4 rounded-[14px] p-[15px] text-left last:mb-0 ${
                     opt.primary
-                      ? "border border-accent/20 bg-gradient-to-br from-accent/10 to-accent/5"
+                      ? "border border-accent/20 bg-accent/10"
                       : "border border-border bg-card-2"
                   }`}
                 >
