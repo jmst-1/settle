@@ -8,27 +8,31 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
 import { personTotals } from "@/lib/debts";
-import { MEMBERS } from "@/lib/mock-data";
+import { creatorName, userByName } from "@/lib/me";
 import { fmtDate, fmtMoney, origin } from "@/lib/format";
 import type { Bill } from "@/lib/types";
+import { useMock } from "@/context/MockStore";
 
 export function BillDetailScreen({ bill }: { bill: Bill }) {
   const router = useRouter();
+  const { users, currentUser } = useMock();
   const [tab, setTab] = useState<"summary" | "items">("summary");
   const [share, setShare] = useState<string | null>(null);
   const [card, setCard] = useState<string | null>(null);
   const totals = useMemo(() => personTotals(bill), [bill]);
   const collected = Object.values(totals).reduce((s, t) => s + t.total, 0);
   const locked = Boolean(bill.lockedAt);
+  const canEdit =
+    !locked && (currentUser.superUser || currentUser.id === bill.createdBy);
 
   return (
     <div className="pb-10">
       <SectionHeader
         title={bill.occasion}
-        subtitle={`${fmtDate(bill.billDate)} · Paid by ${bill.paidBy}${locked ? " · locked" : ""}`}
+        subtitle={`${fmtDate(bill.billDate)} · ${creatorName(users, bill.createdBy)}'s tab · Paid by ${bill.paidBy}${locked ? " · locked" : ""}`}
         onBack={() => router.push("/")}
         action={
-          !locked ? (
+          canEdit ? (
             <button
               onClick={() => router.push(`/bills/${bill.id}/edit`)}
               className="mt-8 text-[13px] font-semibold text-dim"
@@ -56,9 +60,10 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
         {tab === "summary" &&
           bill.names.map((n) => {
             const t = totals[n];
+            if (!t) return null;
             const color = nameColor(n, bill.names);
             const isPayer = n === bill.paidBy;
-            const token = MEMBERS.find((m) => m.name === n)?.shareToken ?? n.toLowerCase();
+            const token = userByName(users, n)?.shareToken;
             return (
               <div key={n} className="card">
                 <div
@@ -120,17 +125,19 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                 )}
                 <Perf />
                 <div className="flex gap-2 p-4">
-                  <button
-                    onClick={() => setShare(n)}
-                    className="flex-1 rounded-xl py-2.5 text-[13px] font-bold"
-                    style={{
-                      border: `1px solid ${color}66`,
-                      background: `${color}18`,
-                      color,
-                    }}
-                  >
-                    <Link2 size={13} className="mr-1 inline" /> Send link
-                  </button>
+                  {token && (
+                    <button
+                      onClick={() => setShare(n)}
+                      className="flex-1 rounded-xl py-2.5 text-[13px] font-bold"
+                      style={{
+                        border: `1px solid ${color}66`,
+                        background: `${color}18`,
+                        color,
+                      }}
+                    >
+                      <Link2 size={13} className="mr-1 inline" /> Send link
+                    </button>
+                  )}
                   <button
                     onClick={() => setCard(n)}
                     className="flex-1 rounded-xl border border-white/10 py-2.5 text-[13px] font-bold text-dim"
@@ -138,7 +145,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                     <ImageIcon size={13} className="mr-1 inline" /> Card
                   </button>
                 </div>
-                {share === n && (
+                {share === n && token && (
                   <ShareLinkModal
                     name={n}
                     amount={t.total}
@@ -261,7 +268,7 @@ function ShareLinkModal({
   const text = `${name}, your ${occasion} split is SGD ${amount.toFixed(2)} — ${url}`;
   const [copied, setCopied] = useState(false);
   return (
-    <Sheet title={`Send ${name}'s link`} subtitle="Same link forever. New bills appear automatically." onClose={onClose}>
+    <Sheet title={`Send ${name}'s link`} subtitle="Unguessable token. Same link forever." onClose={onClose}>
       <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3 font-mono text-[12px] leading-relaxed text-dim">
         {text}
       </div>

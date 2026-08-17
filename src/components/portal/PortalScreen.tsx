@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bookmark, ChevronDown, ChevronUp } from "lucide-react";
 import { Amt, Perf } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
@@ -9,13 +10,14 @@ import { PayNowQR } from "@/components/ui/PayNowQR";
 import { ConfirmSheet } from "@/components/ui/Sheet";
 import { useMock } from "@/context/MockStore";
 import { personTotals } from "@/lib/debts";
-import { memberByToken, paynowFor } from "@/lib/mock-data";
+import { creatorName, paynowForContact, userByToken } from "@/lib/me";
 import { nameColor } from "@/lib/colors";
 import { fmtDate, fmtMoney } from "@/lib/format";
 
 export function PortalScreen({ token }: { token: string }) {
-  const { bills, portalPay } = useMock();
-  const member = memberByToken(token);
+  const { bills, users, contacts, portalPay, setCurrentUser } = useMock();
+  const router = useRouter();
+  const member = userByToken(users, token);
   const [openBill, setOpenBill] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [hint, setHint] = useState(true);
@@ -27,6 +29,9 @@ export function PortalScreen({ token }: { token: string }) {
     const map = new Map<
       string,
       {
+        key: string;
+        creatorId: string;
+        creditor: string;
         amount: number;
         paynow: string;
         bills: {
@@ -48,7 +53,15 @@ export function PortalScreen({ token }: { token: string }) {
       const totals = personTotals(bill);
       const mine = totals[name];
       for (const d of debts) {
-        const cur = map.get(d.to) ?? { amount: 0, paynow: paynowFor(d.to), bills: [] };
+        const key = `${bill.createdBy}::${d.to}`;
+        const cur = map.get(key) ?? {
+          key,
+          creatorId: bill.createdBy,
+          creditor: d.to,
+          amount: 0,
+          paynow: paynowForContact(contacts, users, d.to, bill.createdBy),
+          bills: [],
+        };
         cur.amount += d.amount;
         cur.bills.push({
           id: bill.id,
@@ -60,16 +73,15 @@ export function PortalScreen({ token }: { token: string }) {
           sc: mine?.sc ?? 0,
           tax: mine?.tax ?? 0,
         });
-        map.set(d.to, cur);
+        map.set(key, cur);
       }
     }
-    return Array.from(map.entries()).map(([creditor, data]) => ({ creditor, ...data }));
-  }, [bills, name]);
+    return Array.from(map.values());
+  }, [bills, name, contacts, users]);
 
   const total = creditors.reduce((s, c) => s + c.amount, 0);
-  const owner = "Alice";
 
-  if (!name) {
+  if (!name || !member) {
     return (
       <div className="px-6 py-20 text-center">
         <div className="text-lg font-extrabold">Link not found</div>
@@ -77,6 +89,8 @@ export function PortalScreen({ token }: { token: string }) {
       </div>
     );
   }
+
+  const pending = confirm ? creditors.find((c) => c.key === confirm) : null;
 
   return (
     <div className="min-h-dvh pb-12">
@@ -94,19 +108,20 @@ export function PortalScreen({ token }: { token: string }) {
         <div className="mx-5 mt-8 rounded-2xl border border-ok/20 bg-ok/10 px-5 py-10 text-center">
           <div className="text-xl font-extrabold text-ok">You&apos;re all clear</div>
           <p className="mt-2 text-[13px] leading-relaxed text-muted">
-            New bills from {owner} will appear here — bookmark this page.
+            New bills you&apos;re on will appear here — bookmark this page.
           </p>
         </div>
       ) : (
         <div className="mt-6 flex flex-col gap-4 px-5">
           <p className="text-[12px] leading-relaxed text-muted">
-            SplitTab does not take the money. Pay each person directly via PayNow, then tap I&apos;ve
-            paid.
+            SplitTab does not take the money. Pay each person on that creator&apos;s tab via
+            PayNow, then tap I&apos;ve paid.
           </p>
           {creditors.map((c) => {
             const color = nameColor(c.creditor, [name, c.creditor]);
+            const tab = creatorName(users, c.creatorId);
             return (
-              <div key={c.creditor} className="card">
+              <div key={c.key} className="card">
                 <div
                   className="flex items-center gap-3 px-4 py-4"
                   style={{ background: `linear-gradient(90deg,${color}14,transparent)` }}
@@ -114,7 +129,7 @@ export function PortalScreen({ token }: { token: string }) {
                   <Avatar name={c.creditor} names={[name, c.creditor]} size={40} />
                   <div className="flex-1">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                      Pay
+                      Pay · {tab}&apos;s tab
                     </div>
                     <div className="text-[17px] font-extrabold">{c.creditor}</div>
                   </div>
@@ -136,12 +151,12 @@ export function PortalScreen({ token }: { token: string }) {
                 <Perf />
                 <div className="px-2 py-2">
                   {c.bills.map((b) => {
-                    const open = openBill === `${c.creditor}-${b.id}`;
+                    const open = openBill === `${c.key}-${b.id}`;
                     return (
                       <div key={b.id}>
                         <button
                           onClick={() =>
-                            setOpenBill(open ? null : `${c.creditor}-${b.id}`)
+                            setOpenBill(open ? null : `${c.key}-${b.id}`)
                           }
                           className="flex w-full items-center justify-between px-3 py-2.5 text-left"
                         >
@@ -177,7 +192,7 @@ export function PortalScreen({ token }: { token: string }) {
                 </div>
                 <div className="p-4 pt-1">
                   <button
-                    onClick={() => setConfirm(c.creditor)}
+                    onClick={() => setConfirm(c.key)}
                     className="btn-primary"
                   >
                     I&apos;ve paid {c.creditor}
@@ -193,8 +208,7 @@ export function PortalScreen({ token }: { token: string }) {
         <div className="mx-5 mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <Bookmark size={16} className="mt-0.5 shrink-0 text-accent" />
           <div className="flex-1 text-[12px] leading-relaxed text-dim">
-            Add this page to your Home Screen. New bills from {owner} will show up here
-            automatically.
+            Add this page to your Home Screen. New bills you&apos;re on will show up here.
           </div>
           <button onClick={() => setHint(false)} className="text-[11px] font-bold text-muted">
             OK
@@ -203,21 +217,36 @@ export function PortalScreen({ token }: { token: string }) {
       )}
 
       <div className="mt-8 px-5 text-center">
-        <Link href="/login" className="text-[12px] font-semibold text-muted">
-          Save this in SplitTab →
-        </Link>
+        <button
+          className="text-[13px] font-semibold text-accent"
+          onClick={() => {
+            setCurrentUser(member.id);
+            router.push("/");
+          }}
+        >
+          Open my bills →
+        </button>
+        <div className="mt-2">
+          <Link href="/login" className="text-[12px] font-semibold text-muted">
+            Save this in SplitTab
+          </Link>
+        </div>
       </div>
 
-      {confirm && (
+      {pending && (
         <ConfirmSheet
-          title={`Tell ${owner} you paid ${confirm}?`}
-          body={`This notifies ${owner} that you paid ${confirm} ${fmtMoney(
-            creditors.find((c) => c.creditor === confirm)?.amount ?? 0,
-          )}. SplitTab does not move the money.`}
-          confirmLabel={`I've paid ${confirm}`}
+          title={`Tell ${pending.creditor} you paid?`}
+          body={`This marks you paid ${pending.creditor} ${fmtMoney(
+            pending.amount,
+          )} on ${creatorName(users, pending.creatorId)}'s tab. SplitTab does not move the money.`}
+          confirmLabel={`I've paid ${pending.creditor}`}
           onClose={() => setConfirm(null)}
           onConfirm={() => {
-            portalPay(name, confirm);
+            portalPay(
+              name,
+              pending.creditor,
+              pending.bills.map((b) => b.id),
+            );
             setConfirm(null);
           }}
         />
