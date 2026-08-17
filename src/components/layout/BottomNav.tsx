@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Inbox, Receipt, Zap } from "lucide-react";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 
 const TABS = [
   { href: "/", id: "bills", label: "Bills", icon: Receipt },
@@ -13,11 +13,9 @@ const TABS = [
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { inbox, notifications, currentUser } = useMock();
+  const { inbox, notifications, currentUser } = useApp();
   const inboxCount = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id).length;
-  const unread = notifications.filter(
-    (n) => !n.read && (n.forName === currentUser.name || currentUser.superUser),
-  ).length;
+  const unread = notifications.filter((n) => !n.read).length;
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-50 flex w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]">

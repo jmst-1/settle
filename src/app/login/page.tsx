@@ -1,15 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useMock } from "@/context/MockStore";
-import { SUPER_USER_ID } from "@/lib/mock-data";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [mode, setMode] = useState<"email" | "demo" | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const router = useRouter();
-  const { setCurrentUser } = useMock();
+  const params = useSearchParams();
+  const next = params.get("next") || "/";
+  const claimFromNext = (() => {
+    try {
+      return new URL(next, "http://local").searchParams.get("claim") || "";
+    } catch {
+      return "";
+    }
+  })();
+  const claim = params.get("claim") || claimFromNext;
 
   return (
     <div className="px-6 pt-16">
@@ -22,26 +32,43 @@ export default function LoginPage() {
 
       {sent ? (
         <div className="mt-10 rounded-2xl border border-accent/20 bg-accent/10 p-5">
-          <div className="font-extrabold">Check your email</div>
+          <div className="font-extrabold">
+            {mode === "demo" ? "You’re in" : "Check your email"}
+          </div>
           <p className="mt-1 text-sm text-dim">
-            Mockup: no email is sent. Continue into Alice&apos;s super-user app.
+            {mode === "demo"
+              ? "Email isn’t configured on this server, so this demo signed you in directly."
+              : "Open the magic link we sent. It signs you in on this device."}
           </p>
-          <button
-            onClick={() => {
-              setCurrentUser(SUPER_USER_ID);
-              router.push("/");
-            }}
-            className="btn-primary mt-5"
-          >
-            Continue as Alice
-          </button>
+          {mode === "demo" && (
+            <button onClick={() => router.replace(next)} className="btn-primary mt-5">
+              Open my bills
+            </button>
+          )}
         </div>
       ) : (
         <form
           className="mt-10 flex flex-col gap-3"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            setSent(true);
+            setBusy(true);
+            setError("");
+            try {
+              const res = await fetch("/api/auth/magic", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, claim: claim || undefined }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || "Could not send link");
+              setMode(data.mode === "demo" ? "demo" : "email");
+              setSent(true);
+              if (data.mode === "demo") router.replace(next);
+            } catch (err) {
+              setError((err as Error).message);
+            } finally {
+              setBusy(false);
+            }
           }}
         >
           <input
@@ -52,11 +79,20 @@ export default function LoginPage() {
             placeholder="you@email.com"
             className="field"
           />
-          <button type="submit" className="btn-primary">
-            Send magic link
+          {error && <div className="text-[13px] text-danger">{error}</div>}
+          <button type="submit" disabled={busy} className="btn-primary">
+            {busy ? "Sending…" : "Send magic link"}
           </button>
         </form>
       )}
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

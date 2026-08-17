@@ -1,19 +1,31 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Camera, Inbox, Pencil, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BottomNav } from "@/components/layout/BottomNav";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { loading, currentUser } = useApp();
   const hideChrome =
     pathname.startsWith("/login") ||
     pathname.startsWith("/settle/") ||
     pathname.startsWith("/bills/new") ||
     pathname.includes("/edit");
+  const publicPage = pathname.startsWith("/login") || pathname.startsWith("/settle/");
+
+  if (!publicPage && (loading || !currentUser.id)) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <div className="text-center">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-[4px] text-accent">SplitTab</div>
+          <div className="text-sm text-muted">Loading…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -30,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function Toast() {
-  const { toast, clearToast } = useMock();
+  const { toast, clearToast } = useApp();
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(clearToast, 3200);
@@ -126,65 +138,5 @@ function Fab() {
         </div>
       )}
     </>
-  );
-}
-
-export function MockupBar() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const { users, currentUser, setCurrentUser } = useMock();
-  if (pathname.startsWith("/login")) return null;
-
-  const onPortal = pathname.startsWith("/settle/");
-  const portalToken = onPortal ? pathname.split("/settle/")[1]?.split("/")[0] : null;
-
-  return (
-    <div className="sticky top-0 z-[80] space-y-1 border-b border-border bg-card px-2 py-1.5 text-[11px]">
-      <div className="flex items-center gap-1 overflow-x-auto">
-        <span className="w-8 shrink-0 px-0.5 font-bold uppercase tracking-wider text-muted">
-          Me
-        </span>
-        {users.map((u) => {
-          const active = !onPortal && currentUser.id === u.id;
-          return (
-            <button
-              key={u.id}
-              onClick={() => {
-                setCurrentUser(u.id);
-                if (onPortal) router.push("/");
-              }}
-              className={`shrink-0 rounded-full px-2.5 py-1 font-semibold ${
-                active ? "bg-accent/20 text-accent" : "bg-black/[0.04] text-dim"
-              }`}
-            >
-              {u.name}
-              {u.superUser ? " · super" : ""}
-            </button>
-          );
-        })}
-        <Link href="/settings" className="ml-auto shrink-0 px-2 py-1 text-muted">
-          Settings
-        </Link>
-      </div>
-      <div className="flex items-center gap-1 overflow-x-auto">
-        <span className="w-8 shrink-0 px-0.5 font-bold uppercase tracking-wider text-muted">
-          Pay
-        </span>
-        {users.map((u) => {
-          const active = portalToken === u.shareToken;
-          return (
-            <Link
-              key={u.shareToken}
-              href={`/settle/${u.shareToken}`}
-              className={`shrink-0 rounded-full px-2.5 py-1 font-semibold ${
-                active ? "bg-accent/20 text-accent" : "bg-black/[0.04] text-dim"
-              }`}
-            >
-              {u.name}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
   );
 }

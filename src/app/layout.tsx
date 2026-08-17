@@ -18,6 +18,15 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: "SplitTab",
   description: "Split the bill. Send a link. Get paid via PayNow.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "SplitTab",
+  },
+  icons: {
+    apple: "/icons/icon-192.png",
+  },
 };
 
 export const viewport: Viewport = {

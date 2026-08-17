@@ -1,32 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Camera, ImageIcon, ListFilter, Pencil } from "lucide-react";
 import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmSheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
-import { DUMMY_OCR } from "@/lib/mock-data";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
+import { expandOcr } from "@/lib/ocr";
 import { matchRosterName, rosterFor } from "@/lib/me";
-import type { BillItem, OcrResult } from "@/lib/types";
-
-function expandOcr(ocr: OcrResult): BillItem[] {
-  return (ocr.items || []).flatMap((it) => {
-    const qty = it.qty || 1;
-    if (qty <= 1) {
-      return [{ name: it.name, price: parseFloat(String(it.unitPrice)) || 0, assignee: null, split: false, splitWith: [] }];
-    }
-    return Array.from({ length: qty }, (_, k) => ({
-      name: `${it.name} #${k + 1}`,
-      price: parseFloat(String(it.unitPrice)) || 0,
-      assignee: null,
-      split: false,
-      splitWith: [],
-    }));
-  });
-}
+import type { Bill, BillItem, OcrResult } from "@/lib/types";
 
 function samePeople(a: string[], b: string[]) {
   if (a.length !== b.length) return false;
@@ -43,31 +27,48 @@ function isEqualSplit(items: BillItem[], names: string[]) {
 
 type Step = "upload" | "review" | "people" | "assign";
 
-export function NewBillWizard() {
+export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const router = useRouter();
   const params = useSearchParams();
-  const { saveBill, currentUser, contacts, addContact, inbox } = useMock();
+  const { saveBill, updateBill, currentUser, contacts, addContact, inbox } = useApp();
   const mode = params.get("mode") || "scan";
   const rxId = params.get("rx");
   const rx = inbox.find((r) => r.id === rxId);
-  const preload = rx ? DUMMY_OCR[rx.ocrKey] : null;
+  const preload = editBill
+    ? null
+    : rx?.ocr ?? null;
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
+  const [ocrError, setOcrError] = useState("");
 
-  const [step, setStep] = useState<Step>(preload ? "review" : mode === "manual" ? "review" : "upload");
-  const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState(!!preload);
-  const [occasion, setOccasion] = useState(preload ? rx?.label || preload.occasion : "");
-  const [billDate, setBillDate] = useState(preload?.bill_date || new Date().toISOString().slice(0, 10));
-  const [items, setItems] = useState<BillItem[]>(
-    preload ? expandOcr(preload) : [{ name: "", price: 0, assignee: null, split: false, splitWith: [] }],
+  const [step, setStep] = useState<Step>(
+    editBill || preload ? "review" : mode === "manual" ? "review" : "upload",
   );
-  const [discount, setDiscount] = useState(parseFloat(String(preload?.discount)) || 0);
-  const [sc, setSc] = useState(parseFloat(String(preload?.serviceCharge)) || 0);
-  const [tax, setTax] = useState(parseFloat(String(preload?.tax)) || 0);
-  const [receiptTotal, setReceiptTotal] = useState(parseFloat(String(preload?.total)) || 0);
-  const [names, setNames] = useState<string[]>([currentUser.name]);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(!!preload || !!editBill);
+  const [occasion, setOccasion] = useState(
+    editBill?.occasion || (preload ? rx?.label || preload.occasion : ""),
+  );
+  const [billDate, setBillDate] = useState(
+    editBill?.billDate || preload?.bill_date || new Date().toISOString().slice(0, 10),
+  );
+  const [items, setItems] = useState<BillItem[]>(
+    editBill?.items?.length
+      ? editBill.items
+      : preload
+        ? expandOcr(preload)
+        : [{ name: "", price: 0, assignee: null, split: false, splitWith: [] }],
+  );
+  const [discount, setDiscount] = useState(editBill?.discount ?? (parseFloat(String(preload?.discount)) || 0));
+  const [sc, setSc] = useState(editBill?.serviceCharge ?? (parseFloat(String(preload?.serviceCharge)) || 0));
+  const [tax, setTax] = useState(editBill?.tax ?? (parseFloat(String(preload?.tax)) || 0));
+  const [receiptTotal, setReceiptTotal] = useState(
+    editBill?.receiptTotal ?? (parseFloat(String(preload?.total)) || 0),
+  );
+  const [names, setNames] = useState<string[]>(editBill?.names ?? [currentUser.name]);
   const [newName, setNewName] = useState("");
-  const [paidBy, setPaidBy] = useState(currentUser.name);
-  const [payNow, setPayNow] = useState(currentUser.paynow);
+  const [paidBy, setPaidBy] = useState(editBill?.paidBy || currentUser.name);
+  const [payNow, setPayNow] = useState(editBill?.payNowNumber || currentUser.paynow);
   const [equalConfirm, setEqualConfirm] = useState(false);
   const [splitPicker, setSplitPicker] = useState<number | null>(null);
 
@@ -91,42 +92,55 @@ export function NewBillWizard() {
     setStep("review");
   };
 
-  const handleScan = () => {
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
     setScanning(true);
-    setTimeout(() => {
-      applyOcr(DUMMY_OCR["bill-1"]);
+    setOcrError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const up = await fetch("/api/upload", { method: "POST", body: form });
+      const upData = await up.json();
+      if (!up.ok) throw new Error(upData.error || "Upload failed");
+      const ocrRes = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: upData.path }),
+      });
+      const ocrData = await ocrRes.json();
+      if (!ocrRes.ok) throw new Error(ocrData.error || "Could not read receipt");
+      applyOcr(ocrData.ocr as OcrResult);
+    } catch (e) {
+      setOcrError((e as Error).message);
+    } finally {
       setScanning(false);
-    }, 1400);
+    }
   };
 
-  const persist = (billItems: BillItem[]) => {
-    saveBill(
-      {
-        id: crypto.randomUUID(),
-        occasion: occasion || "Untitled bill",
-        billDate,
-        currency: "SGD",
-        items: billItems,
-        names: [...names],
-        discount,
-        serviceCharge: sc,
-        tax,
-        receiptTotal: receiptTotal || derivedTotal,
-        paidBy,
-        payNowNumber: payNow,
-        createdBy: currentUser.id,
-        createdAt: new Date().toISOString(),
-      },
-      rxId || undefined,
-    );
-    router.push("/");
+  const persist = async (billItems: BillItem[]) => {
+    const payload = {
+      occasion: occasion || "Untitled bill",
+      billDate,
+      currency: "SGD" as const,
+      items: billItems,
+      names: [...names],
+      discount,
+      serviceCharge: sc,
+      tax,
+      receiptTotal: receiptTotal || derivedTotal,
+      paidBy,
+      payNowNumber: payNow,
+    };
+    if (editBill) await updateBill(editBill.id, payload);
+    else await saveBill(payload, rxId || undefined);
+    router.push(editBill ? `/bills/${editBill.id}` : "/");
   };
 
-  const addName = (n?: string) => {
+  const addName = async (n?: string) => {
     const raw = (n ?? newName).trim();
     if (!raw) return;
     const hit = matchRosterName(contacts, currentUser.id, raw);
-    const name = hit?.name ?? addContact(raw).name;
+    const name = hit?.name ?? (await addContact(raw)).name;
     if (!names.includes(name)) {
       setNames((p) => [...p, name]);
       if (!paidBy) setPaidBy(name);
@@ -154,10 +168,25 @@ export function NewBillWizard() {
 
       {step === "upload" && (
         <>
-          <SectionHeader title="New bill" subtitle="Scan or enter manually" onBack={() => router.push("/")} />
+          <SectionHeader title={editBill ? "Edit bill" : "New bill"} subtitle="Scan or enter manually" onBack={() => router.push(editBill ? `/bills/${editBill.id}` : "/")} />
           <div className="flex flex-col gap-3.5 px-5">
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => void handleFile(e.target.files?.[0])}
+            />
+            <input
+              ref={libraryRef}
+              type="file"
+              accept="image/*,.heic,.heif"
+              className="hidden"
+              onChange={(e) => void handleFile(e.target.files?.[0])}
+            />
             <button
-              onClick={!scanning ? handleScan : undefined}
+              onClick={!scanning ? () => cameraRef.current?.click() : undefined}
               className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-accent/30 bg-accent/[0.04] px-8 py-10"
             >
               <Camera size={32} className="text-accent" />
@@ -169,15 +198,20 @@ export function NewBillWizard() {
                   <div className="h-full w-1/3 rounded-sm bg-accent" style={{ animation: "scan 1.4s ease-in-out infinite" }} />
                 </div>
               ) : (
-                <div className="text-[13px] text-muted">Mock OCR uses the Handlebar receipt</div>
+                <div className="text-[13px] text-muted">Camera captures a receipt photo</div>
               )}
             </button>
-            <button onClick={handleScan} className="btn-ghost flex items-center justify-center gap-2">
+            <button onClick={() => libraryRef.current?.click()} className="btn-ghost flex items-center justify-center gap-2">
               <ImageIcon size={16} /> Photo library
             </button>
             <button onClick={() => setStep("review")} className="btn-ghost flex items-center justify-center gap-2">
               <Pencil size={16} /> Enter manually
             </button>
+            {ocrError && (
+              <div className="rounded-xl border border-danger/20 bg-danger/10 px-3.5 py-3 text-[13px] text-danger">
+                {ocrError}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -187,7 +221,7 @@ export function NewBillWizard() {
           <SectionHeader
             title="Review receipt"
             subtitle={scanned ? "OCR complete — edit anything that's off" : "Enter your items"}
-            onBack={() => (preload ? router.push("/inbox") : setStep("upload"))}
+            onBack={() => (editBill ? router.push(`/bills/${editBill.id}`) : preload ? router.push("/inbox") : setStep("upload"))}
           />
           <div className="flex flex-col gap-3.5 px-5">
             <div className="card">
@@ -300,7 +334,7 @@ export function NewBillWizard() {
                 <Label>Your people</Label>
                 <p className="mb-2 mt-1 text-[11px] leading-relaxed text-muted">
                   This is {currentUser.name}&apos;s roster. A Bob you add here is not Alice&apos;s
-                  Bob until a super-user merge.
+                  Bob until you merge them later.
                 </p>
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {recent.map((n) => {
@@ -312,7 +346,7 @@ export function NewBillWizard() {
                         onClick={() => {
                           if (mine && on) return;
                           if (on) setNames((p) => p.filter((x) => x !== n));
-                          else addName(n);
+                          else void addName(n);
                         }}
                         className="flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-bold"
                         style={{
@@ -331,11 +365,11 @@ export function NewBillWizard() {
                   <input
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addName()}
+                    onKeyDown={(e) => e.key === "Enter" && void addName()}
                     placeholder="Add someone new…"
                     className="field"
                   />
-                  <button onClick={() => addName()} className="shrink-0 rounded-xl bg-accent px-4 font-extrabold text-white">
+                  <button onClick={() => void addName()} className="shrink-0 rounded-xl bg-accent px-4 font-extrabold text-white">
                     Add
                   </button>
                 </div>
@@ -520,7 +554,7 @@ export function NewBillWizard() {
               disabled={!allAssigned || !names.length || !paidBy}
               onClick={() => {
                 if (isEqualSplit(items, names)) setEqualConfirm(true);
-                else persist(items);
+                else void persist(items);
               }}
               className="btn-primary"
             >
@@ -562,7 +596,7 @@ export function NewBillWizard() {
               splitWith: [...names],
               assignee: null,
             }));
-            persist(equalItems);
+            void persist(equalItems);
           }}
         />
       )}

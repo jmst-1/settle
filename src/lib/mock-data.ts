@@ -1,7 +1,7 @@
 import { computeDebts } from "@/lib/debts";
-import type { Bill, Contact, InboxReceipt, Member, OcrResult } from "@/lib/types";
+import type { Bill, Contact, Group, InboxReceipt, Member, OcrResult } from "@/lib/types";
 
-export const SUPER_USER_ID = "usr_alice";
+export const DEMO_USER_ID = "usr_alice";
 
 export const USERS: Member[] = [
   {
@@ -10,7 +10,7 @@ export const USERS: Member[] = [
     shareToken: "st_k7q2n9xm4p",
     paynow: "+6591110001",
     paynowType: "mobile",
-    superUser: true,
+    email: "alice@example.com",
   },
   {
     id: "usr_bob",
@@ -18,7 +18,7 @@ export const USERS: Member[] = [
     shareToken: "st_h3w8c1vb6r",
     paynow: "+6592220002",
     paynowType: "mobile",
-    superUser: false,
+    email: "bob@example.com",
   },
   {
     id: "usr_con",
@@ -26,7 +26,7 @@ export const USERS: Member[] = [
     shareToken: "st_m5t0j4yf2d",
     paynow: "+6593330003",
     paynowType: "mobile",
-    superUser: false,
+    email: "con@example.com",
   },
   {
     id: "usr_dana",
@@ -34,20 +34,31 @@ export const USERS: Member[] = [
     shareToken: "st_p9a6l2qk8z",
     paynow: "+6594440004",
     paynowType: "mobile",
-    superUser: false,
+    email: "dana@example.com",
   },
 ];
 
 /** @deprecated use USERS — kept so older screens can import a familiar name */
 export const MEMBERS = USERS;
 
+export const SEED_GROUPS: Group[] = USERS.map((u) => ({
+  id: `grp_${u.id.replace("usr_", "")}_personal`,
+  ownerId: u.id,
+  name: "Personal",
+  isPersonal: true,
+}));
+
 function contact(creatorId: string, name: string): Contact {
   const user = USERS.find((u) => u.name === name);
+  const slug = creatorId.replace("usr_", "");
   return {
-    id: `ct_${creatorId.replace("usr_", "")}_${name.toLowerCase()}`,
+    id: `ct_${slug}_${name.toLowerCase()}`,
     creatorId,
+    groupId: `grp_${slug}_personal`,
     name,
     paynow: user?.paynow ?? "",
+    shareToken: user && creatorId === user.id ? user.shareToken : `st_${slug}_${name.toLowerCase()}`,
+    linkedUserId: user?.id,
   };
 }
 
@@ -232,8 +243,8 @@ export const SEED_INBOX: InboxReceipt[] = [
     label: "Sunday brunch",
     capturedAt: "2026-08-16T11:20:00Z",
     processed: false,
-    ocrKey: "bill-2",
     ownerId: "usr_alice",
+    ocr: DUMMY_OCR["bill-2"],
   },
 ];
 

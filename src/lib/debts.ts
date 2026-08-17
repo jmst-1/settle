@@ -42,7 +42,43 @@ export function computeDebts(
       });
     }
   }
-  return debts;
+  return roundCents(
+    debts,
+    items,
+    names,
+    paidBy,
+    discount,
+    serviceCharge,
+    tax,
+    items.reduce((sum, item) => sum + item.price, 0) - discount + serviceCharge + tax,
+  );
+}
+
+/** Assign leftover cents to the largest debt so person totals match the bill. */
+export function roundCents(
+  debts: BillDebt[],
+  items: BillItem[],
+  names: string[],
+  paidBy: string,
+  discount: number,
+  serviceCharge: number,
+  tax: number,
+  receiptTotal: number,
+): BillDebt[] {
+  if (!debts.length) return debts;
+  const totals = personTotals({ items, names, discount, serviceCharge, tax });
+  const payerShare = totals[paidBy]?.total ?? 0;
+  const expected = parseFloat((receiptTotal - payerShare).toFixed(2));
+  const sum = debts.reduce((s, d) => s + d.amount, 0);
+  const diff = parseFloat((expected - sum).toFixed(2));
+  if (Math.abs(diff) < 0.005) return debts;
+  let idx = 0;
+  debts.forEach((d, i) => {
+    if (d.amount > debts[idx].amount) idx = i;
+  });
+  return debts.map((d, i) =>
+    i === idx ? { ...d, amount: parseFloat((d.amount + diff).toFixed(2)) } : d,
+  );
 }
 
 export function simplifyDebts(rawDebts: BillDebt[]) {

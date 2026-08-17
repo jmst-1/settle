@@ -2,10 +2,10 @@
 
 import { Suspense } from "react";
 import { NewBillWizard } from "@/components/bill/NewBillWizard";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 
 function Wizard() {
-  const { currentUser } = useMock();
+  const { currentUser } = useApp();
   return <NewBillWizard key={currentUser.id} />;
 }
 
