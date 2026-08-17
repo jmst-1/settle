@@ -1,8 +1,8 @@
 # SplitTab
 
-Mobile-first expense splitting. Friends don't need an account — each person gets a permanent `/settle/[token]` link, pays via PayNow QR, and taps I've paid.
+Mobile-first expense splitting. Friends don't need an account — each person gets a permanent `/settle/[token]` link (unguessable id, not their name).
 
-This branch is a **UI mockup** with local seed data (no Supabase, no Claude OCR). Use it to click through the owner app and the participant portal before Phase 0–6 wiring.
+This branch is a **UI mockup** with local seed data (no Supabase, no Claude OCR).
 
 ## Run
 
@@ -11,14 +11,16 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The layout is phone-width. A **Mock** bar at the top switches between the owner app and Dana / Bob / Con / Alice settle links.
+Open [http://localhost:3000](http://localhost:3000). The layout is phone-width.
+
+The **Me** bar switches the full app (bills, inbox, new bill, settle) into each person's me-centric view. Alice is the super user. **Pay** is still the QR-first portal for that person's unique token.
 
 ## What's in the mockup
 
-- Owner: bills, inbox, settle up, new-bill wizard (scan → review → people → split)
-- Link-first share (WhatsApp-style message), PNG card as secondary
-- Participant portal: QR hero, confirm I've paid, all-clear + bookmark hint
-- Confirm + owner undo for settlements
-- Recent-people chips, You pre-selected, 16px inputs, Lucide icons
+- Me-centric home: you owe / you're owed, bills you're on (Alice also sees every tab)
+- Anyone can add an expense; people chips are **that creator's roster**
+- Settle nets **per creator** — Alice's Bob is not Dana's Bob
+- Creator or the people on a debt can tag paid; only Alice can undo
+- Personal inbox, unique settle tokens, pay portal + "Open my bills"
 
-Seed bills are Handlebar, PS.Cafe, and Atlas Bar from the original prototype.
+Seed bills: Handlebar (Alice's tab), PS.Cafe (Bob's tab), Atlas Bar (Con's tab).

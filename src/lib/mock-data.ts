@@ -1,13 +1,61 @@
 import { computeDebts } from "@/lib/debts";
-import type { Bill, InboxReceipt, Member, OcrResult } from "@/lib/types";
+import type { Bill, Contact, InboxReceipt, Member, OcrResult } from "@/lib/types";
 
-export const OWNER_NAME = "Alice";
+export const SUPER_USER_ID = "usr_alice";
 
-export const MEMBERS: Member[] = [
-  { name: "Alice", shareToken: "alice", paynow: "+6591110001", paynowType: "mobile" },
-  { name: "Bob", shareToken: "bob", paynow: "+6592220002", paynowType: "mobile" },
-  { name: "Con", shareToken: "con", paynow: "+6593330003", paynowType: "mobile" },
-  { name: "Dana", shareToken: "dana", paynow: "+6594440004", paynowType: "mobile" },
+export const USERS: Member[] = [
+  {
+    id: "usr_alice",
+    name: "Alice",
+    shareToken: "st_k7q2n9xm4p",
+    paynow: "+6591110001",
+    paynowType: "mobile",
+    superUser: true,
+  },
+  {
+    id: "usr_bob",
+    name: "Bob",
+    shareToken: "st_h3w8c1vb6r",
+    paynow: "+6592220002",
+    paynowType: "mobile",
+    superUser: false,
+  },
+  {
+    id: "usr_con",
+    name: "Con",
+    shareToken: "st_m5t0j4yf2d",
+    paynow: "+6593330003",
+    paynowType: "mobile",
+    superUser: false,
+  },
+  {
+    id: "usr_dana",
+    name: "Dana",
+    shareToken: "st_p9a6l2qk8z",
+    paynow: "+6594440004",
+    paynowType: "mobile",
+    superUser: false,
+  },
+];
+
+/** @deprecated use USERS — kept so older screens can import a familiar name */
+export const MEMBERS = USERS;
+
+function contact(creatorId: string, name: string): Contact {
+  const user = USERS.find((u) => u.name === name);
+  return {
+    id: `ct_${creatorId.replace("usr_", "")}_${name.toLowerCase()}`,
+    creatorId,
+    name,
+    paynow: user?.paynow ?? "",
+  };
+}
+
+export const SEED_CONTACTS: Contact[] = [
+  ...["Alice", "Bob", "Con", "Dana"].map((n) => contact("usr_alice", n)),
+  ...["Alice", "Bob", "Con"].map((n) => contact("usr_bob", n)),
+  ...["Alice", "Bob", "Con", "Dana"].map((n) => contact("usr_con", n)),
+  ...["Alice", "Bob", "Con", "Dana"].map((n) => contact("usr_dana", n)),
 ];
 
 export const DUMMY_OCR: Record<string, OcrResult> = {
@@ -123,6 +171,7 @@ export const SEED_BILLS: Bill[] = [
     receiptTotal: 376.37,
     paidBy: "Alice",
     payNowNumber: "+6591110001",
+    createdBy: "usr_alice",
     createdAt: "2026-05-20T21:00:00Z",
   }),
   bill({
@@ -146,6 +195,7 @@ export const SEED_BILLS: Bill[] = [
     receiptTotal: 159.48,
     paidBy: "Bob",
     payNowNumber: "+6592220002",
+    createdBy: "usr_bob",
     createdAt: "2026-06-14T13:00:00Z",
   }),
   bill({
@@ -171,6 +221,7 @@ export const SEED_BILLS: Bill[] = [
     receiptTotal: 355.91,
     paidBy: "Con",
     payNowNumber: "+6593330003",
+    createdBy: "usr_con",
     createdAt: "2026-07-05T22:30:00Z",
   }),
 ];
@@ -182,13 +233,14 @@ export const SEED_INBOX: InboxReceipt[] = [
     capturedAt: "2026-08-16T11:20:00Z",
     processed: false,
     ocrKey: "bill-2",
+    ownerId: "usr_alice",
   },
 ];
 
 export function paynowFor(name: string) {
-  return MEMBERS.find((m) => m.name === name)?.paynow ?? "";
+  return USERS.find((m) => m.name === name)?.paynow ?? "";
 }
 
 export function memberByToken(token: string) {
-  return MEMBERS.find((m) => m.shareToken === token);
+  return USERS.find((m) => m.shareToken === token);
 }

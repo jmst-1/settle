@@ -2,27 +2,37 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMock } from "@/context/MockStore";
+import { SUPER_USER_ID } from "@/lib/mock-data";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const router = useRouter();
+  const { setCurrentUser } = useMock();
 
   return (
     <div className="px-6 pt-16">
       <div className="mb-2 text-[11px] font-bold uppercase tracking-[4px] text-accent">SplitTab</div>
       <h1 className="m-0 text-[28px] font-extrabold tracking-tight">Sign in</h1>
       <p className="mt-2 max-w-[280px] text-[14px] leading-relaxed text-muted">
-        Magic link for the person chasing the bill. Friends never need an account.
+        Magic link for you. Friends use their own unguessable link — they get a me-centric app,
+        no account required.
       </p>
 
       {sent ? (
         <div className="mt-10 rounded-2xl border border-accent/20 bg-accent/10 p-5">
           <div className="font-extrabold">Check your email</div>
           <p className="mt-1 text-sm text-dim">
-            Mockup: no email is sent. Continue into the owner app.
+            Mockup: no email is sent. Continue into Alice&apos;s super-user app.
           </p>
-          <button onClick={() => router.push("/")} className="btn-primary mt-5">
+          <button
+            onClick={() => {
+              setCurrentUser(SUPER_USER_ID);
+              router.push("/");
+            }}
+            className="btn-primary mt-5"
+          >
             Continue as Alice
           </button>
         </div>

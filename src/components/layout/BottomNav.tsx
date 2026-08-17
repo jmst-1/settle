@@ -13,9 +13,11 @@ const TABS = [
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { inbox, notifications } = useMock();
-  const inboxCount = inbox.filter((r) => !r.processed).length;
-  const unread = notifications.filter((n) => !n.read).length;
+  const { inbox, notifications, currentUser } = useMock();
+  const inboxCount = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id).length;
+  const unread = notifications.filter(
+    (n) => !n.read && (n.forName === currentUser.name || currentUser.superUser),
+  ).length;
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-50 flex w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-[#111009] pb-[env(safe-area-inset-bottom)]">

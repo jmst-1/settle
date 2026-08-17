@@ -7,8 +7,9 @@ import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmSheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
-import { DUMMY_OCR, MEMBERS } from "@/lib/mock-data";
+import { DUMMY_OCR } from "@/lib/mock-data";
 import { useMock } from "@/context/MockStore";
+import { matchRosterName, rosterFor } from "@/lib/me";
 import type { BillItem, OcrResult } from "@/lib/types";
 
 function expandOcr(ocr: OcrResult): BillItem[] {
@@ -32,7 +33,7 @@ type Step = "upload" | "review" | "people" | "assign";
 export function NewBillWizard() {
   const router = useRouter();
   const params = useSearchParams();
-  const { saveBill, ownerName, defaultPaynow, inbox } = useMock();
+  const { saveBill, currentUser, contacts, addContact, inbox } = useMock();
   const mode = params.get("mode") || "scan";
   const rxId = params.get("rx");
   const rx = inbox.find((r) => r.id === rxId);
@@ -50,14 +51,15 @@ export function NewBillWizard() {
   const [sc, setSc] = useState(parseFloat(String(preload?.serviceCharge)) || 0);
   const [tax, setTax] = useState(parseFloat(String(preload?.tax)) || 0);
   const [receiptTotal, setReceiptTotal] = useState(parseFloat(String(preload?.total)) || 0);
-  const [names, setNames] = useState<string[]>([ownerName]);
+  const [names, setNames] = useState<string[]>([currentUser.name]);
   const [newName, setNewName] = useState("");
-  const [paidBy, setPaidBy] = useState(ownerName);
-  const [payNow, setPayNow] = useState(defaultPaynow);
+  const [paidBy, setPaidBy] = useState(currentUser.name);
+  const [payNow, setPayNow] = useState(currentUser.paynow);
   const [equalConfirm, setEqualConfirm] = useState(false);
   const [splitPicker, setSplitPicker] = useState<number | null>(null);
 
-  const recent = MEMBERS.map((m) => m.name);
+  const roster = rosterFor(contacts, currentUser.id);
+  const recent = roster.map((c) => c.name);
   const itemSubtotal = items.reduce((s, it) => s + it.price, 0);
   const derivedTotal = itemSubtotal - discount + sc + tax;
   const diff = receiptTotal > 0 ? Math.abs(receiptTotal - derivedTotal) : 0;
@@ -99,6 +101,7 @@ export function NewBillWizard() {
         receiptTotal: receiptTotal || derivedTotal,
         paidBy,
         payNowNumber: payNow,
+        createdBy: currentUser.id,
         createdAt: new Date().toISOString(),
       },
       rxId || undefined,
@@ -107,8 +110,11 @@ export function NewBillWizard() {
   };
 
   const addName = (n?: string) => {
-    const name = (n ?? newName).trim();
-    if (name && !names.includes(name)) {
+    const raw = (n ?? newName).trim();
+    if (!raw) return;
+    const hit = matchRosterName(contacts, currentUser.id, raw);
+    const name = hit?.name ?? addContact(raw).name;
+    if (!names.includes(name)) {
       setNames((p) => [...p, name]);
       if (!paidBy) setPaidBy(name);
     }
@@ -278,17 +284,23 @@ export function NewBillWizard() {
           <div className="flex flex-col gap-3.5 px-5">
             <div className="card">
               <div className="p-4">
-                <Label>Recent</Label>
+                <Label>Your people</Label>
+                <p className="mb-2 mt-1 text-[11px] leading-relaxed text-muted">
+                  This is {currentUser.name}&apos;s roster. A Bob you add here is not Alice&apos;s
+                  Bob until a super-user merge.
+                </p>
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {recent.map((n) => {
                     const on = names.includes(n);
-                    const mine = n === ownerName;
+                    const mine = n === currentUser.name;
                     return (
                       <button
                         key={n}
-                        onClick={() =>
-                          on ? setNames((p) => p.filter((x) => x !== n)) : addName(n)
-                        }
+                        onClick={() => {
+                          if (mine && on) return;
+                          if (on) setNames((p) => p.filter((x) => x !== n));
+                          else addName(n);
+                        }}
                         className="flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-bold"
                         style={{
                           background: on ? `${nameColor(n, recent)}28` : "rgba(255,255,255,0.04)",
@@ -326,7 +338,7 @@ export function NewBillWizard() {
                           key={n}
                           onClick={() => {
                             setPaidBy(n);
-                            const m = MEMBERS.find((x) => x.name === n);
+                            const m = roster.find((x) => x.name === n);
                             if (m) setPayNow(m.paynow);
                           }}
                           className="flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-bold"

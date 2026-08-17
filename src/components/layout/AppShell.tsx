@@ -131,27 +131,60 @@ function Fab() {
 
 export function MockupBar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { users, currentUser, setCurrentUser } = useMock();
   if (pathname.startsWith("/login")) return null;
+
+  const onPortal = pathname.startsWith("/settle/");
+  const portalToken = onPortal ? pathname.split("/settle/")[1]?.split("/")[0] : null;
+
   return (
-    <div className="sticky top-0 z-[80] flex items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0A0908] px-2 py-1.5 text-[11px]">
-      <span className="shrink-0 px-1.5 font-bold uppercase tracking-wider text-muted">
-        Mock
-      </span>
-      <Link href="/" className="shrink-0 rounded-full bg-white/5 px-2.5 py-1 font-semibold text-dim">
-        Owner
-      </Link>
-      {["dana", "bob", "con", "alice"].map((t) => (
-        <Link
-          key={t}
-          href={`/settle/${t}`}
-          className="shrink-0 rounded-full bg-white/5 px-2.5 py-1 font-semibold capitalize text-dim"
-        >
-          {t}
+    <div className="sticky top-0 z-[80] space-y-1 border-b border-white/5 bg-[#0A0908] px-2 py-1.5 text-[11px]">
+      <div className="flex items-center gap-1 overflow-x-auto">
+        <span className="w-8 shrink-0 px-0.5 font-bold uppercase tracking-wider text-muted">
+          Me
+        </span>
+        {users.map((u) => {
+          const active = !onPortal && currentUser.id === u.id;
+          return (
+            <button
+              key={u.id}
+              onClick={() => {
+                setCurrentUser(u.id);
+                if (onPortal) router.push("/");
+              }}
+              className={`shrink-0 rounded-full px-2.5 py-1 font-semibold ${
+                active ? "bg-accent/20 text-accent" : "bg-white/5 text-dim"
+              }`}
+            >
+              {u.name}
+              {u.superUser ? " · super" : ""}
+            </button>
+          );
+        })}
+        <Link href="/settings" className="ml-auto shrink-0 px-2 py-1 text-muted">
+          Settings
         </Link>
-      ))}
-      <Link href="/settings" className="ml-auto shrink-0 px-2 py-1 text-muted">
-        Settings
-      </Link>
+      </div>
+      <div className="flex items-center gap-1 overflow-x-auto">
+        <span className="w-8 shrink-0 px-0.5 font-bold uppercase tracking-wider text-muted">
+          Pay
+        </span>
+        {users.map((u) => {
+          const active = portalToken === u.shareToken;
+          return (
+            <Link
+              key={u.shareToken}
+              href={`/settle/${u.shareToken}`}
+              className={`shrink-0 rounded-full px-2.5 py-1 font-semibold ${
+                active ? "bg-accent/20 text-accent" : "bg-white/5 text-dim"
+              }`}
+            >
+              {u.name}
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }

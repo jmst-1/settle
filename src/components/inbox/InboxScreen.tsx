@@ -9,10 +9,10 @@ import { useMock } from "@/context/MockStore";
 import { fmtDateTime } from "@/lib/format";
 
 export function InboxScreen() {
-  const { inbox, captureInbox } = useMock();
+  const { inbox, captureInbox, currentUser } = useMock();
   const params = useSearchParams();
   const router = useRouter();
-  const unprocessed = inbox.filter((r) => !r.processed);
+  const unprocessed = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id);
   const [capture, setCapture] = useState(false);
 
   useEffect(() => {
@@ -26,6 +26,7 @@ export function InboxScreen() {
           SplitTab
         </div>
         <h1 className="m-0 text-[28px] font-extrabold tracking-tight">Inbox</h1>
+        <div className="mt-1 text-[13px] text-dim">{currentUser.name}&apos;s captures</div>
         {unprocessed.length > 0 && (
           <div className="mt-1 text-[13px] text-muted">
             {unprocessed.length} receipt{unprocessed.length !== 1 ? "s" : ""} waiting to split

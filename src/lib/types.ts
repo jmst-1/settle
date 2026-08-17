@@ -26,6 +26,7 @@ export type Bill = {
   receiptTotal: number;
   paidBy: string;
   payNowNumber: string;
+  createdBy: string;
   debts: BillDebt[];
   createdAt: string;
   lockedAt: string | null;
@@ -37,13 +38,24 @@ export type InboxReceipt = {
   capturedAt: string;
   processed: boolean;
   ocrKey: string;
+  ownerId: string;
 };
 
 export type Member = {
+  id: string;
   name: string;
   shareToken: string;
   paynow: string;
   paynowType: "mobile" | "uen";
+  superUser: boolean;
+};
+
+/** A person on one creator's roster. Same display name, different creator → different id. */
+export type Contact = {
+  id: string;
+  creatorId: string;
+  name: string;
+  paynow: string;
 };
 
 export type AppNotification = {
@@ -51,6 +63,7 @@ export type AppNotification = {
   text: string;
   createdAt: string;
   read: boolean;
+  forName: string;
 };
 
 export type OcrResult = {
