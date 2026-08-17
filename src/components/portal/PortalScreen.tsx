@@ -175,7 +175,7 @@ export function PortalScreen({ token }: { token: string }) {
                               <div
                                 key={i}
                                 className="mb-1 flex justify-between text-[12px]"
-                                style={{ color: it.isShared ? "#4ECDC4" : "#C8C4BE" }}
+                                style={{ color: it.isShared ? "var(--accent)" : "var(--dim)" }}
                               >
                                 <span>
                                   {it.isShared ? "⇌ " : ""}
@@ -205,7 +205,7 @@ export function PortalScreen({ token }: { token: string }) {
       )}
 
       {hint && (
-        <div className="mx-5 mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mx-5 mt-6 flex items-start gap-3 rounded-2xl border border-border bg-card p-4">
           <Bookmark size={16} className="mt-0.5 shrink-0 text-accent" />
           <div className="flex-1 text-[12px] leading-relaxed text-dim">
             Add this page to your Home Screen. New bills you&apos;re on will show up here.
@@ -224,7 +224,7 @@ export function PortalScreen({ token }: { token: string }) {
             router.push("/");
           }}
         >
-          Open my bills →
+          Open my bills
         </button>
         <div className="mt-2">
           <Link href="/login" className="text-[12px] font-semibold text-muted">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, ImageIcon, Pencil } from "lucide-react";
+import { Camera, ImageIcon, ListFilter, Pencil } from "lucide-react";
 import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmSheet } from "@/components/ui/Sheet";
@@ -26,6 +26,19 @@ function expandOcr(ocr: OcrResult): BillItem[] {
       splitWith: [],
     }));
   });
+}
+
+function samePeople(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((n) => set.has(n));
+}
+
+function isEqualSplit(items: BillItem[], names: string[]) {
+  return (
+    items.length > 0 &&
+    items.every((it) => it.split && !it.assignee && samePeople(it.splitWith, names))
+  );
 }
 
 type Step = "upload" | "review" | "people" | "assign";
@@ -130,7 +143,7 @@ export function NewBillWizard() {
         <div className="flex gap-1.5 px-5 pt-4">
           {steps.map((s, i) => (
             <div key={s} className="flex-1">
-              <div className={`h-1 rounded-full ${i <= stepIdx ? "bg-accent" : "bg-white/10"}`} />
+              <div className={`h-1 rounded-full ${i <= stepIdx ? "bg-accent" : "bg-black/10"}`} />
               <div className={`mt-1.5 text-[10px] font-bold uppercase tracking-wider ${i === stepIdx ? "text-accent" : "text-muted"}`}>
                 {s}
               </div>
@@ -152,7 +165,7 @@ export function NewBillWizard() {
                 {scanning ? "Reading receipt…" : "Take photo"}
               </div>
               {scanning ? (
-                <div className="h-[3px] w-[140px] overflow-hidden rounded-sm bg-white/10">
+                <div className="h-[3px] w-[140px] overflow-hidden rounded-sm bg-black/10">
                   <div className="h-full w-1/3 rounded-sm bg-accent" style={{ animation: "scan 1.4s ease-in-out infinite" }} />
                 </div>
               ) : (
@@ -214,7 +227,7 @@ export function NewBillWizard() {
                     />
                     <button
                       onClick={() => setItems((p) => p.filter((_, idx) => idx !== i))}
-                      className="text-lg text-[#3A3632]"
+                      className="text-lg text-muted"
                     >
                       ×
                     </button>
@@ -233,9 +246,9 @@ export function NewBillWizard() {
             </div>
             <div className="card">
               {[
-                ["Bill discount", discount, setDiscount, "#96CEB4", true],
-                ["Service charge", sc, setSc, "#8A8480", false],
-                ["GST", tax, setTax, "#8A8480", false],
+                ["Bill discount", discount, setDiscount, "var(--ok)", true],
+                ["Service charge", sc, setSc, "var(--dim)", false],
+                ["GST", tax, setTax, "var(--dim)", false],
               ].map(([lbl, val, setter, clr, neg]) => (
                 <div key={String(lbl)}>
                   <div className="flex items-center gap-2 px-4 py-3">
@@ -257,7 +270,7 @@ export function NewBillWizard() {
               ))}
               <div className="flex items-center justify-between px-4 py-3.5">
                 <span className="text-sm font-bold">Total</span>
-                <Amt value={derivedTotal} color="#4ECDC4" size={16} />
+                <Amt value={derivedTotal} color="var(--accent)" size={16} />
               </div>
               {diff > 0.01 && (
                 <div className="px-4 pb-3.5">
@@ -268,7 +281,7 @@ export function NewBillWizard() {
               )}
             </div>
             <button onClick={() => setStep("people")} className="btn-primary">
-              Continue →
+              Continue
             </button>
           </div>
         </>
@@ -303,9 +316,9 @@ export function NewBillWizard() {
                         }}
                         className="flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-bold"
                         style={{
-                          background: on ? `${nameColor(n, recent)}28` : "rgba(255,255,255,0.04)",
-                          border: `1px solid ${on ? nameColor(n, recent) + "55" : "rgba(255,255,255,0.08)"}`,
-                          color: on ? nameColor(n, recent) : "#8A8480",
+                          background: on ? `${nameColor(n, recent)}28` : "rgba(28,25,23,0.04)",
+                          border: `1px solid ${on ? nameColor(n, recent) + "55" : "rgba(28,25,23,0.08)"}`,
+                          color: on ? nameColor(n, recent) : "var(--dim)",
                         }}
                       >
                         <Avatar name={n} names={recent} size={18} />
@@ -322,7 +335,7 @@ export function NewBillWizard() {
                     placeholder="Add someone new…"
                     className="field"
                   />
-                  <button onClick={() => addName()} className="shrink-0 rounded-xl bg-accent px-4 font-extrabold text-bg">
+                  <button onClick={() => addName()} className="shrink-0 rounded-xl bg-accent px-4 font-extrabold text-white">
                     Add
                   </button>
                 </div>
@@ -343,9 +356,9 @@ export function NewBillWizard() {
                           }}
                           className="flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-bold"
                           style={{
-                            background: paidBy === n ? `${nameColor(n, names)}28` : "rgba(255,255,255,0.04)",
-                            border: `1px solid ${paidBy === n ? nameColor(n, names) + "55" : "rgba(255,255,255,0.08)"}`,
-                            color: paidBy === n ? nameColor(n, names) : "#8A8480",
+                            background: paidBy === n ? `${nameColor(n, names)}28` : "rgba(28,25,23,0.04)",
+                            border: `1px solid ${paidBy === n ? nameColor(n, names) + "55" : "rgba(28,25,23,0.08)"}`,
+                            color: paidBy === n ? nameColor(n, names) : "var(--dim)",
                           }}
                         >
                           <Avatar name={n} names={names} size={18} />
@@ -378,8 +391,8 @@ export function NewBillWizard() {
                   onClick={() => setEqualConfirm(true)}
                   className="card w-full text-left"
                   style={{
-                    border: "1px solid rgba(78,205,196,0.25)",
-                    background: "linear-gradient(135deg,rgba(78,205,196,0.08),rgba(69,183,209,0.04))",
+                    border: "1px solid rgba(42,157,143,0.28)",
+                    background: "linear-gradient(135deg,rgba(42,157,143,0.10),rgba(42,157,143,0.03))",
                   }}
                 >
                   <div className="flex items-center gap-4 p-4">
@@ -396,16 +409,28 @@ export function NewBillWizard() {
                     </div>
                   </div>
                 </button>
-                <button onClick={() => setStep("assign")} className="card w-full text-left">
+                <button
+                  onClick={() => {
+                    setItems((p) =>
+                      p.map((it) => ({
+                        ...it,
+                        split: true,
+                        splitWith: [...names],
+                        assignee: null,
+                      })),
+                    );
+                    setStep("assign");
+                  }}
+                  className="card w-full text-left"
+                >
                   <div className="flex items-center gap-4 p-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-white/5 text-lg">
-                      →
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-black/[0.04] text-dim">
+                      <ListFilter size={20} />
                     </div>
                     <div className="flex-1">
                       <div className="mb-0.5 text-[15px] font-extrabold">Assign by item</div>
-                      <div className="text-xs text-muted">Choose who had what</div>
+                      <div className="text-xs text-muted">Starts equal — change anyone you need</div>
                     </div>
-                    <div className="text-[#3A3632]">›</div>
                   </div>
                 </button>
               </>
@@ -433,57 +458,55 @@ export function NewBillWizard() {
                         {it.split && <span className="mr-1 text-accent">⇌</span>}
                         {it.name}
                       </span>
-                      <Amt value={it.price} color="#4ECDC4" />
+                      <Amt value={it.price} color="var(--accent)" />
                     </div>
-                    {it.split ? (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {it.splitWith.map((n) => (
-                          <Avatar key={n} name={n} names={names} size={22} />
-                        ))}
-                        <span className="text-xs font-bold text-accent">
-                          ÷{it.splitWith.length} · {(it.price / it.splitWith.length).toFixed(2)} ea
-                        </span>
-                        <button
-                          className="ml-auto text-[13px] text-[#3A3632]"
-                          onClick={() =>
-                            setItems((p) => p.map((x, idx) => (idx === i ? { ...x, split: false, splitWith: [] } : x)))
-                          }
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {names.map((n) => (
-                          <button
-                            key={n}
-                            onClick={() =>
-                              setItems((p) =>
-                                p.map((x, idx) =>
-                                  idx === i ? { ...x, assignee: x.assignee === n ? null : n } : x,
-                                ),
-                              )
-                            }
-                            className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-bold"
-                            style={{
-                              background: it.assignee === n ? `${nameColor(n, names)}28` : "rgba(255,255,255,0.04)",
-                              border: `1px solid ${it.assignee === n ? nameColor(n, names) + "55" : "rgba(255,255,255,0.08)"}`,
-                              color: it.assignee === n ? nameColor(n, names) : "#8A8480",
-                            }}
-                          >
-                            {n}
-                          </button>
-                        ))}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        {names.map((n) => {
+                          const selected = it.split ? it.splitWith.includes(n) : it.assignee === n;
+                          return (
+                            <button
+                              key={n}
+                              onClick={() =>
+                                setItems((p) =>
+                                  p.map((x, idx) =>
+                                    idx === i
+                                      ? {
+                                          ...x,
+                                          assignee: x.assignee === n && !x.split ? null : n,
+                                          split: false,
+                                          splitWith: [],
+                                        }
+                                      : x,
+                                  ),
+                                )
+                              }
+                              className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-bold"
+                              style={{
+                                background: selected ? `${nameColor(n, names)}28` : "rgba(28,25,23,0.04)",
+                                border: `1px solid ${selected ? nameColor(n, names) + "55" : "rgba(28,25,23,0.08)"}`,
+                                color: selected ? nameColor(n, names) : "var(--dim)",
+                              }}
+                            >
+                              {n}
+                            </button>
+                          );
+                        })}
                         {names.length >= 2 && (
                           <button
                             onClick={() => setSplitPicker(i)}
-                            className="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1.5 text-xs font-bold text-accent"
+                            className={`rounded-full px-2.5 py-1.5 text-xs font-bold ${
+                              it.split
+                                ? "border border-accent/30 bg-accent/10 text-accent"
+                                : "border border-border bg-black/[0.04] text-dim"
+                            }`}
                           >
                             ⇌ Split
+                            {it.split && it.splitWith.length
+                              ? ` ÷${it.splitWith.length}`
+                              : ""}
                           </button>
                         )}
                       </div>
-                    )}
                   </div>
                 </div>
               ))}
@@ -495,7 +518,10 @@ export function NewBillWizard() {
             )}
             <button
               disabled={!allAssigned || !names.length || !paidBy}
-              onClick={() => persist(items)}
+              onClick={() => {
+                if (isEqualSplit(items, names)) setEqualConfirm(true);
+                else persist(items);
+              }}
               className="btn-primary"
             >
               Save bill
@@ -557,8 +583,8 @@ function SplitPicker({
 }) {
   const [selected, setSelected] = useState<string[]>(item.splitWith?.length ? item.splitWith : [...names]);
   return (
-    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/80 p-4">
-      <div className="w-full max-w-[400px] rounded-[20px] border border-white/10 bg-card-2 p-6">
+    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-4">
+      <div className="w-full max-w-[400px] rounded-[20px] border border-border bg-card p-6">
         <div className="mb-4 text-[15px] font-extrabold">Split &quot;{item.name}&quot;</div>
         <div className="mb-5 flex flex-col gap-2">
           {names.map((n) => (
@@ -567,8 +593,8 @@ function SplitPicker({
               onClick={() => setSelected((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]))}
               className="flex items-center gap-3 rounded-xl px-3.5 py-2.5"
               style={{
-                background: selected.includes(n) ? "rgba(78,205,196,0.1)" : "rgba(255,255,255,0.03)",
-                border: `1px solid ${selected.includes(n) ? "rgba(78,205,196,0.4)" : "rgba(255,255,255,0.07)"}`,
+                background: selected.includes(n) ? "rgba(42,157,143,0.1)" : "rgba(28,25,23,0.03)",
+                border: `1px solid ${selected.includes(n) ? "rgba(42,157,143,0.4)" : "rgba(28,25,23,0.08)"}`,
               }}
             >
               <Avatar name={n} names={names} />

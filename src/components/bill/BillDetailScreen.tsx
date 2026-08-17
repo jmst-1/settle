@@ -43,13 +43,13 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
         }
       />
       <div className="flex flex-col gap-3.5 px-5">
-        <div className="flex gap-1.5 rounded-xl bg-white/[0.04] p-1">
+        <div className="flex gap-1.5 rounded-xl bg-black/[0.04] p-1">
           {(["summary", "items"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 rounded-[9px] py-2 text-[13px] font-bold capitalize ${
-                tab === t ? "bg-[#1F1D1A] text-text" : "bg-transparent text-muted"
+                tab === t ? "bg-card text-text shadow-sm" : "bg-transparent text-muted"
               }`}
             >
               {t === "summary" ? "Per person" : "Full bill"}
@@ -98,7 +98,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                     <div key={j} className="mb-1">
                       <div
                         className="flex justify-between text-[13px]"
-                        style={{ color: it.isShared ? "#4ECDC4" : "#C8C4BE" }}
+                        style={{ color: it.isShared ? "var(--accent)" : "var(--dim)" }}
                       >
                         <span>
                           {it.isShared && "⇌ "}
@@ -114,7 +114,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                     <Perf />
                     <div className="px-4 py-2 text-xs">
                       {bill.discount > 0 && (
-                        <Row label="Discount" value={`− ${fmtMoney(t.discount)}`} color="#96CEB4" />
+                        <Row label="Discount" value={`− ${fmtMoney(t.discount)}`} color="var(--ok)" />
                       )}
                       {bill.serviceCharge > 0 && (
                         <Row label="Service charge" value={fmtMoney(t.sc)} />
@@ -140,7 +140,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                   )}
                   <button
                     onClick={() => setCard(n)}
-                    className="flex-1 rounded-xl border border-white/10 py-2.5 text-[13px] font-bold text-dim"
+                    className="flex-1 rounded-xl border border-border py-2.5 text-[13px] font-bold text-dim"
                   >
                     <ImageIcon size={13} className="mr-1 inline" /> Card
                   </button>
@@ -157,7 +157,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                 {card === n && (
                   <Sheet title={`Card for ${n}`} subtitle="Static snapshot — the link stays live" onClose={() => setCard(null)}>
                     <div
-                      className="mb-4 overflow-hidden rounded-xl border border-white/10"
+                      className="mb-4 overflow-hidden rounded-xl border border-border"
                       style={{ borderTop: `4px solid ${color}` }}
                     >
                       <div className="px-4 py-3" style={{ background: `${color}18` }}>
@@ -227,12 +227,12 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
             ))}
             <Perf />
             <div className="p-4">
-              {bill.discount > 0 && <Row label="Discount" value={`− ${bill.discount.toFixed(2)}`} color="#96CEB4" />}
+              {bill.discount > 0 && <Row label="Discount" value={`− ${bill.discount.toFixed(2)}`} color="var(--ok)" />}
               {bill.serviceCharge > 0 && <Row label="Service charge" value={bill.serviceCharge.toFixed(2)} />}
               {bill.tax > 0 && <Row label="GST" value={bill.tax.toFixed(2)} />}
               <div className="mt-1 flex justify-between text-[15px] font-extrabold">
                 <span>Total</span>
-                <Amt value={bill.receiptTotal} color="#4ECDC4" size={16} />
+                <Amt value={bill.receiptTotal} color="var(--accent)" size={16} />
               </div>
             </div>
           </div>
@@ -244,7 +244,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
 
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="mb-1 flex justify-between" style={{ color: color || "#5A5652" }}>
+    <div className="mb-1 flex justify-between" style={{ color: color || "var(--muted)" }}>
       <span>{label}</span>
       <span className="font-mono">{value}</span>
     </div>
@@ -269,7 +269,7 @@ function ShareLinkModal({
   const [copied, setCopied] = useState(false);
   return (
     <Sheet title={`Send ${name}'s link`} subtitle="Unguessable token. Same link forever." onClose={onClose}>
-      <div className="mb-3 rounded-xl border border-white/10 bg-black/30 p-3 font-mono text-[12px] leading-relaxed text-dim">
+      <div className="mb-3 rounded-xl border border-border bg-card-2 p-3 font-mono text-[12px] leading-relaxed text-dim">
         {text}
       </div>
       <button

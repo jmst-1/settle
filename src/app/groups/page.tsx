@@ -26,7 +26,7 @@ export default function GroupsPage() {
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {roster.map((m) => (
-              <div key={m.id} className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1.5">
+              <div key={m.id} className="flex items-center gap-1.5 rounded-full bg-black/[0.04] px-2.5 py-1.5">
                 <Avatar name={m.name} names={roster.map((x) => x.name)} size={22} />
                 <span className="text-[13px] font-bold">
                   {m.name === currentUser.name ? "You" : m.name}

@@ -14,10 +14,10 @@ export function Sheet({
   subtitle?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/80 p-4 sm:items-center">
+    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-4 sm:items-center">
       <button className="absolute inset-0" aria-label="Close" onClick={onClose} />
-      <div className="relative w-full max-w-[400px] rounded-[20px] border border-white/10 bg-card-2 p-6">
-        <div className="mx-auto mb-5 h-1 w-9 rounded-full bg-white/10 sm:hidden" />
+      <div className="relative w-full max-w-[400px] rounded-[20px] border border-border bg-card p-6">
+        <div className="mx-auto mb-5 h-1 w-9 rounded-full bg-black/10 sm:hidden" />
         {(title || subtitle) && (
           <div className="mb-4 pr-8">
             {title && <div className="text-[16px] font-extrabold">{title}</div>}

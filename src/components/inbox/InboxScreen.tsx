@@ -44,7 +44,7 @@ export function InboxScreen() {
           unprocessed.map((r) => (
             <div key={r.id} className="card">
               <div className="flex items-center gap-3.5 px-4 py-3.5">
-                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[10px] border border-white/10 bg-white/[0.04] text-accent">
+                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[10px] border border-border bg-card-2 text-accent">
                   <ImageIcon size={22} />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -63,7 +63,7 @@ export function InboxScreen() {
                   onClick={() => router.push(`/bills/new?mode=inbox&rx=${r.id}`)}
                   className="btn-primary py-2.5 text-sm"
                 >
-                  Process → Split
+                  Process
                 </button>
               </div>
             </div>
@@ -115,17 +115,17 @@ function CaptureModal({
       <button
         onClick={!snapped && !busy ? snap : undefined}
         className={`mb-4 flex w-full flex-col items-center gap-2 rounded-[14px] border-2 border-dashed px-8 py-8 ${
-          snapped ? "border-ok/40 bg-ok/5" : "border-white/10 bg-white/[0.02]"
+          snapped ? "border-ok/40 bg-ok/5" : "border-border bg-card-2"
         }`}
       >
         <Camera size={28} className={snapped ? "text-ok" : "text-dim"} />
         <div className={`text-sm font-bold ${snapped ? "text-ok" : "text-dim"}`}>
           {snapped ? "Receipt captured" : busy ? "Snapping…" : "Take photo"}
         </div>
-        <div className="text-xs text-[#3A3632]">Camera or photo library</div>
+        <div className="text-xs text-muted">Camera or photo library</div>
       </button>
       <Label>
-        Label <span className="font-normal normal-case tracking-normal text-[#3A3632]">(optional)</span>
+        Label <span className="font-normal normal-case tracking-normal text-muted">(optional)</span>
       </Label>
       <input
         value={label}
