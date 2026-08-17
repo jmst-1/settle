@@ -3,28 +3,28 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0d0d0d;
-  --card: #161412;
-  --card-2: #1a1714;
-  --border: rgba(255, 255, 255, 0.07);
-  --accent: #4ecdc4;
-  --accent-2: #3bb5ad;
-  --muted: #6b6560;
-  --dim: #8a8480;
-  --text: #f0ede8;
-  --danger: #ff6b6b;
-  --warn: #f7dc6f;
-  --ok: #96ceb4;
+  --bg: #f6f1ea;
+  --card: #ffffff;
+  --card-2: #fbf8f4;
+  --border: rgba(28, 25, 23, 0.08);
+  --accent: #c4452d;
+  --accent-2: #a33824;
+  --muted: #6f6a64;
+  --dim: #5c5752;
+  --text: #1c1917;
+  --danger: #c4452d;
+  --warn: #c4a035;
+  --ok: #9a7a32;
 }
 
 html,
 body {
-  background: #070706;
+  background: #e8e0d4;
   color: var(--text);
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.7);
+  opacity: 0.55;
 }
 
 input,
@@ -39,17 +39,17 @@ select {
     @apply overflow-hidden rounded-2xl border border-border bg-card;
   }
   .perf {
-    border-top: 2px dashed rgba(255, 255, 255, 0.06);
+    border-top: 2px dashed rgba(28, 25, 23, 0.08);
     margin: 0 16px;
   }
   .btn-primary {
-    @apply w-full rounded-[14px] bg-gradient-to-br from-accent to-accent-2 py-4 font-extrabold text-bg disabled:cursor-not-allowed disabled:opacity-30;
+    @apply w-full rounded-[14px] bg-accent py-4 font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-30;
   }
   .btn-ghost {
-    @apply w-full rounded-[14px] border border-white/10 bg-transparent py-3.5 font-semibold text-dim;
+    @apply w-full rounded-[14px] border border-border bg-transparent py-3.5 font-semibold text-dim;
   }
   .field {
-    @apply w-full rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-[11px] text-text outline-none placeholder:text-muted;
+    @apply w-full rounded-xl border border-border bg-white px-3.5 py-[11px] text-text outline-none placeholder:text-muted;
   }
 }
 

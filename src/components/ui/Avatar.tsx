@@ -37,7 +37,7 @@ export function AvatarStack({ names, size = 22 }: { names: string[]; size?: numb
         </span>
       ))}
       {names.length > 4 && (
-        <span className="-ml-1.5 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-white/10 bg-card-2 text-[9px] font-bold text-dim">
+        <span className="-ml-1.5 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-border bg-card-2 text-[9px] font-bold text-dim">
           +{names.length - 4}
         </span>
       )}
