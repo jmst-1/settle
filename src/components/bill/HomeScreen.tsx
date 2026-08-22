@@ -5,13 +5,28 @@ import { Settings, Users } from "lucide-react";
 import { Amt } from "@/components/ui/Typography";
 import { AvatarStack } from "@/components/ui/Avatar";
 import { useMock } from "@/context/MockStore";
+import { foldDebtsForPairs } from "@/lib/debts";
 import { fmtDate } from "@/lib/format";
-import { creatorName, myOutstanding, visibleBills } from "@/lib/me";
+import {
+  coveredByNote,
+  creatorName,
+  involvingMe,
+  myOutstanding,
+  pairsForCreator,
+  tabsByCreator,
+  visibleBills,
+} from "@/lib/me";
 
 export function HomeScreen() {
-  const { bills, users, currentUser } = useMock();
+  const { bills, users, pairs, currentUser } = useMock();
   const mine = visibleBills(bills, currentUser);
-  const { owe, owed } = myOutstanding(mine, currentUser.name);
+  const { owe, owed } = myOutstanding(mine, currentUser.name, pairs);
+  const coverNote = coveredByNote(pairs, currentUser.name);
+  const hasSettle = tabsByCreator(mine, pairs).some((tab) =>
+    currentUser.superUser
+      ? tab.simplified.length > 0
+      : involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId).length > 0,
+  );
 
   return (
     <div className="pb-28">
@@ -74,11 +89,12 @@ export function HomeScreen() {
               </div>
             </div>
             <div className="mt-2 text-[11px] text-muted">
+              {coverNote ? `${coverNote} on combined tabs. ` : ""}
               {currentUser.superUser
                 ? "Your balances. Super sees every tab below, including ones you’re not on."
                 : "Bills you’re on. Nets stay inside each creator’s tab."}
             </div>
-            {(owe > 0 || owed > 0) && (
+            {hasSettle && (
               <Link
                 href="/settle"
                 className="mt-4 block w-full rounded-xl bg-accent/15 py-2.5 text-center text-sm font-extrabold text-accent"
@@ -90,10 +106,16 @@ export function HomeScreen() {
 
           <div className="flex flex-col gap-2.5 px-5">
             {mine.map((b) => {
-              const owedAmt = b.debts.filter((d) => !d.settled).reduce((s, d) => s + d.amount, 0);
+              const folded = foldDebtsForPairs(
+                b.debts.filter((d) => !d.settled),
+                pairsForCreator(pairs, b.createdBy),
+              );
+              const owedAmt = folded.reduce((s, d) => s + d.amount, 0);
               const allSettled = owedAmt === 0 && b.debts.length > 0;
-              const myDebt = b.debts
-                .filter((d) => !d.settled && (d.from === currentUser.name || d.to === currentUser.name))
+              const myDebt = folded
+                .filter(
+                  (d) => d.from === currentUser.name || d.to === currentUser.name,
+                )
                 .reduce((s, d) => s + (d.from === currentUser.name ? d.amount : -d.amount), 0);
               return (
                 <Link

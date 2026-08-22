@@ -9,13 +9,21 @@ import { Avatar } from "@/components/ui/Avatar";
 import { PayNowQR } from "@/components/ui/PayNowQR";
 import { ConfirmSheet } from "@/components/ui/Sheet";
 import { useMock } from "@/context/MockStore";
-import { personTotals } from "@/lib/debts";
-import { creatorName, paynowForContact, userByToken } from "@/lib/me";
+import { personTotals, foldDebtsForPairs } from "@/lib/debts";
+import {
+  creatorName,
+  expandPairNames,
+  pairContaining,
+  pairsForCreator,
+  partnerName,
+  paynowForContact,
+  userByToken,
+} from "@/lib/me";
 import { nameColor } from "@/lib/colors";
 import { fmtDate, fmtMoney } from "@/lib/format";
 
 export function PortalScreen({ token }: { token: string }) {
-  const { bills, users, contacts, portalPay, setCurrentUser } = useMock();
+  const { bills, users, contacts, pairs, portalPay, setCurrentUser } = useMock();
   const router = useRouter();
   const member = userByToken(users, token);
   const [openBill, setOpenBill] = useState<string | null>(null);
@@ -34,6 +42,8 @@ export function PortalScreen({ token }: { token: string }) {
         creditor: string;
         amount: number;
         paynow: string;
+        settler: string | null;
+        partner: string | null;
         bills: {
           id: string;
           occasion: string;
@@ -48,11 +58,25 @@ export function PortalScreen({ token }: { token: string }) {
     >();
 
     for (const bill of bills) {
-      const debts = bill.debts.filter((d) => d.from === name && !d.settled);
+      const myNames = expandPairNames(pairs, bill.createdBy, name);
+      const debts = bill.debts.filter((d) => myNames.includes(d.from) && !d.settled);
       if (!debts.length) continue;
+      const creatorPairs = pairsForCreator(pairs, bill.createdBy);
+      const folded = foldDebtsForPairs(debts, creatorPairs);
       const totals = personTotals(bill);
-      const mine = totals[name];
-      for (const d of debts) {
+      const mergedItems = myNames.flatMap((n) =>
+        (totals[n]?.items ?? []).map((it) => ({
+          name: it.name,
+          amount: it.amount,
+          isShared: it.isShared,
+        })),
+      );
+      const mergedDiscount = myNames.reduce((s, n) => s + (totals[n]?.discount ?? 0), 0);
+      const mergedSc = myNames.reduce((s, n) => s + (totals[n]?.sc ?? 0), 0);
+      const mergedTax = myNames.reduce((s, n) => s + (totals[n]?.tax ?? 0), 0);
+      const pair = pairContaining(pairs, bill.createdBy, name);
+
+      for (const d of folded) {
         const key = `${bill.createdBy}::${d.to}`;
         const cur = map.get(key) ?? {
           key,
@@ -60,6 +84,8 @@ export function PortalScreen({ token }: { token: string }) {
           creditor: d.to,
           amount: 0,
           paynow: paynowForContact(contacts, users, d.to, bill.createdBy),
+          settler: pair && pair.memberNames.includes(name) ? pair.settler : null,
+          partner: pair && pair.memberNames.includes(name) ? partnerName(pair, pair.settler) : null,
           bills: [],
         };
         cur.amount += d.amount;
@@ -68,16 +94,16 @@ export function PortalScreen({ token }: { token: string }) {
           occasion: bill.occasion,
           date: bill.billDate,
           amount: d.amount,
-          items: mine?.items ?? [],
-          discount: mine?.discount ?? 0,
-          sc: mine?.sc ?? 0,
-          tax: mine?.tax ?? 0,
+          items: mergedItems,
+          discount: mergedDiscount,
+          sc: mergedSc,
+          tax: mergedTax,
         });
         map.set(key, cur);
       }
     }
     return Array.from(map.values());
-  }, [bills, name, contacts, users]);
+  }, [bills, name, contacts, users, pairs]);
 
   const total = creditors.reduce((s, c) => s + c.amount, 0);
 
@@ -97,7 +123,11 @@ export function PortalScreen({ token }: { token: string }) {
       <div className="px-5 pb-2 pt-8">
         <div className="mb-6 text-[11px] font-bold uppercase tracking-[4px] text-accent">SplitTab</div>
         <div className="text-[15px] text-dim">Hi, {name}</div>
-        <div className="mt-1 text-[13px] text-muted">You owe</div>
+        <div className="mt-1 text-[13px] text-muted">
+          {creditors.some((c) => c.settler && c.settler !== name)
+            ? `${Array.from(new Set(creditors.filter((c) => c.settler && c.settler !== name).map((c) => c.settler))).join(", ")} settles for you · combined`
+            : "You owe"}
+        </div>
         <div className="mt-1 font-mono text-[40px] font-extrabold tracking-tight leading-none">
           {total.toFixed(2)}
           <span className="ml-1.5 text-sm font-normal text-muted">SGD</span>
@@ -130,6 +160,9 @@ export function PortalScreen({ token }: { token: string }) {
                   <div className="flex-1">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-muted">
                       Pay · {tab}&apos;s tab
+                      {c.settler && c.partner
+                        ? ` · ${c.settler} (for ${c.partner})`
+                        : ""}
                     </div>
                     <div className="text-[17px] font-extrabold">{c.creditor}</div>
                   </div>
@@ -236,7 +269,11 @@ export function PortalScreen({ token }: { token: string }) {
       {pending && (
         <ConfirmSheet
           title={`Tell ${pending.creditor} you paid?`}
-          body={`This marks you paid ${pending.creditor} ${fmtMoney(
+          body={`This marks ${
+            pending.settler && pending.partner
+              ? `${pending.settler} & ${pending.partner}`
+              : "you"
+          } paid ${pending.creditor} ${fmtMoney(
             pending.amount,
           )} on ${creatorName(users, pending.creatorId)}'s tab. SplitTab does not move the money.`}
           confirmLabel={`I've paid ${pending.creditor}`}

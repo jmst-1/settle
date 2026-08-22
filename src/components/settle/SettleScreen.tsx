@@ -8,28 +8,34 @@ import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
 import { PayNowQR } from "@/components/ui/PayNowQR";
 import { useMock } from "@/context/MockStore";
+import { foldDebtsForPairs } from "@/lib/debts";
 import { fmtMoney, origin } from "@/lib/format";
 import { nameColor } from "@/lib/colors";
 import {
   canTagSettlement,
   creatorName,
+  expandPairNames,
   involvingMe,
+  pairContaining,
+  pairsForCreator,
+  partnerName,
   paynowForContact,
+  settlementPayerLabel,
   tabsByCreator,
   userByName,
   visibleBills,
 } from "@/lib/me";
 
 export function SettleScreen() {
-  const { bills, users, contacts, currentUser, settlePair, undoPair, markNotificationRead } = useMock();
+  const { bills, users, contacts, pairs, currentUser, settlePair, undoPair, markNotificationRead } = useMock();
   const router = useRouter();
   useEffect(() => {
     markNotificationRead();
   }, [markNotificationRead]);
   const mine = visibleBills(bills, currentUser);
-  const tabs = tabsByCreator(mine).filter((tab) => {
+  const tabs = tabsByCreator(mine, pairs).filter((tab) => {
     if (currentUser.superUser) return tab.simplified.length > 0 || tab.rawUnsettled.length > 0;
-    return involvingMe(tab.simplified, currentUser.name).length > 0;
+    return involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId).length > 0;
   });
 
   const [qr, setQr] = useState<{ name: string; pn: string; amount: number } | null>(null);
@@ -46,17 +52,24 @@ export function SettleScreen() {
     const rows: { a: string; b: string; creatorId: string }[] = [];
     const seen = new Set<string>();
     mine.forEach((bill) => {
-      bill.debts
-        .filter((d) => d.settled)
-        .forEach((d) => {
-          const key = `${bill.createdBy}||${[d.from, d.to].sort().join("||")}`;
-          if (seen.has(key)) return;
-          seen.add(key);
-          rows.push({ a: d.from, b: d.to, creatorId: bill.createdBy });
-        });
+      foldDebtsForPairs(
+        bill.debts.filter((d) => d.settled),
+        pairsForCreator(pairs, bill.createdBy),
+      ).forEach((d) => {
+        const key = `${bill.createdBy}||${[d.from, d.to].sort().join("||")}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({ a: d.from, b: d.to, creatorId: bill.createdBy });
+      });
     });
     return rows;
-  }, [mine, currentUser.superUser]);
+  }, [mine, currentUser.superUser, pairs]);
+
+  const confirmPair = confirm
+    ? pairContaining(pairs, confirm.creatorId, confirm.from)
+    : null;
+  const confirmPartner = confirmPair ? partnerName(confirmPair, confirmPair.settler) : null;
+  const confirmExtra = confirmPartner ? ` Also clears ${confirmPartner} on this tab.` : "";
 
   return (
     <div className="pb-28">
@@ -85,7 +98,7 @@ export function SettleScreen() {
             const owner = creatorName(users, tab.creatorId);
             const txns = currentUser.superUser
               ? tab.simplified
-              : involvingMe(tab.simplified, currentUser.name);
+              : involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId);
             if (!txns.length) return null;
             return (
               <div key={tab.creatorId}>
@@ -102,9 +115,19 @@ export function SettleScreen() {
                       tab.creatorId,
                       txn.from,
                       txn.to,
+                      pairs,
                     );
-                    const iPay = txn.from === currentUser.name;
-                    const theyPayMe = txn.to === currentUser.name;
+                    const fromNames = expandPairNames(pairs, tab.creatorId, txn.from);
+                    const toNames = expandPairNames(pairs, tab.creatorId, txn.to);
+                    const iPay = fromNames.includes(currentUser.name);
+                    const theyPayMe = toNames.includes(currentUser.name);
+                    const fromLabel = settlementPayerLabel(
+                      txn.from,
+                      pairs,
+                      tab.creatorId,
+                      currentUser.name,
+                    );
+                    const toLabel = txn.to === currentUser.name ? "you" : txn.to;
                     return (
                       <div key={`${tab.creatorId}-${txn.from}-${txn.to}`} className="card">
                         <div className="flex items-center gap-3 px-4 py-3.5">
@@ -113,9 +136,8 @@ export function SettleScreen() {
                           <Avatar name={txn.to} names={[txn.from, txn.to]} size={34} />
                           <div className="min-w-0 flex-1">
                             <div className="text-[13px] font-bold">
-                              {txn.from === currentUser.name ? "You" : txn.from}{" "}
-                              <span className="font-normal text-muted">pays</span>{" "}
-                              {txn.to === currentUser.name ? "you" : txn.to}
+                              {fromLabel}{" "}
+                              <span className="font-normal text-muted">pays</span> {toLabel}
                             </div>
                             {pn && <div className="mt-0.5 text-[11px] text-muted">{pn}</div>}
                           </div>
@@ -210,8 +232,8 @@ export function SettleScreen() {
 
       {confirm && (
         <ConfirmSheet
-          title={`Mark ${confirm.from} → ${confirm.to} paid?`}
-          body={`Only this creator’s tab (${creatorName(users, confirm.creatorId)}). SGD ${confirm.amount.toFixed(2)} net. Creator or the people on the debt can tag it.`}
+          title={`Mark ${settlementPayerLabel(confirm.from, pairs, confirm.creatorId)} → ${confirm.to} paid?`}
+          body={`Only this creator’s tab (${creatorName(users, confirm.creatorId)}). SGD ${confirm.amount.toFixed(2)} net.${confirmExtra} Creator or the people on the debt can tag it.`}
           confirmLabel="Mark paid"
           onClose={() => setConfirm(null)}
           onConfirm={() => {

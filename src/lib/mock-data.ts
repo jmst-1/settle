@@ -1,5 +1,5 @@
 import { computeDebts } from "@/lib/debts";
-import type { Bill, Contact, InboxReceipt, Member, OcrResult } from "@/lib/types";
+import type { Bill, Contact, InboxReceipt, Member, OcrResult, PayeePair } from "@/lib/types";
 
 export const SUPER_USER_ID = "usr_alice";
 
@@ -56,6 +56,16 @@ export const SEED_CONTACTS: Contact[] = [
   ...["Alice", "Bob", "Con"].map((n) => contact("usr_bob", n)),
   ...["Alice", "Bob", "Con", "Dana"].map((n) => contact("usr_con", n)),
   ...["Alice", "Bob", "Con", "Dana"].map((n) => contact("usr_dana", n)),
+];
+
+/** Bob + Dana settle as one on Alice's tab. Items stay tagged per person. */
+export const SEED_PAIRS: PayeePair[] = [
+  {
+    id: "pair_alice_bob_dana",
+    creatorId: "usr_alice",
+    memberNames: ["Bob", "Dana"],
+    settler: "Bob",
+  },
 ];
 
 export const DUMMY_OCR: Record<string, OcrResult> = {

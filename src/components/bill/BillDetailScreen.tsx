@@ -8,14 +8,14 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
 import { personTotals } from "@/lib/debts";
-import { creatorName, userByName } from "@/lib/me";
+import { creatorName, pairContaining, partnerName, userByName } from "@/lib/me";
 import { fmtDate, fmtMoney, origin } from "@/lib/format";
 import type { Bill } from "@/lib/types";
 import { useMock } from "@/context/MockStore";
 
 export function BillDetailScreen({ bill }: { bill: Bill }) {
   const router = useRouter();
-  const { users, currentUser } = useMock();
+  const { users, pairs, currentUser } = useMock();
   const [tab, setTab] = useState<"summary" | "items">("summary");
   const [share, setShare] = useState<string | null>(null);
   const [card, setCard] = useState<string | null>(null);
@@ -64,6 +64,14 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
             const color = nameColor(n, bill.names);
             const isPayer = n === bill.paidBy;
             const token = userByName(users, n)?.shareToken;
+            const pair = pairContaining(pairs, bill.createdBy, n);
+            const other = pair ? partnerName(pair, n) : null;
+            const settleHint =
+              pair && other
+                ? pair.settler === n
+                  ? ` · settles for ${other}`
+                  : ` · settles with ${pair.settler}`
+                : "";
             return (
               <div key={n} className="card">
                 <div
@@ -82,6 +90,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                     </div>
                     <div className="mt-0.5 text-xs text-muted">
                       {t.items.length} item{t.items.length !== 1 ? "s" : ""}
+                      {settleHint}
                     </div>
                   </div>
                   <div className="text-right">
