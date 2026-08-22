@@ -11,6 +11,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { loading, currentUser } = useApp();
   const hideChrome =
     pathname.startsWith("/login") ||
+    pathname.startsWith("/welcome") ||
     pathname.startsWith("/settle/") ||
     pathname.startsWith("/bills/new") ||
     pathname.includes("/edit");

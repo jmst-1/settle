@@ -125,6 +125,7 @@ export function ensureUser(input: { id: string; email?: string; name: string; pa
     paynow: input.paynow ?? "",
     paynowType: "mobile",
     email: input.email,
+    onboardedAt: null,
   };
   snap.users.push(user);
 
@@ -171,6 +172,7 @@ export function setProfile(userId: string, name: string, paynow: string) {
   const prev = user.name;
   user.name = name.trim() || user.name;
   user.paynow = paynow.trim();
+  user.onboardedAt = user.onboardedAt ?? new Date().toISOString();
   snap.contacts.forEach((c) => {
     if (c.linkedUserId === userId || (c.creatorId === userId && c.name === prev)) {
       c.name = user.name;

@@ -3,6 +3,9 @@ import type { Bill, Contact, Group, InboxReceipt, Member, OcrResult } from "@/li
 
 export const DEMO_USER_ID = "usr_alice";
 
+/** Seed demo users have already picked a name, so they skip /welcome. */
+const SEED_ONBOARDED_AT = "2026-01-01T00:00:00.000Z";
+
 export const USERS: Member[] = [
   {
     id: "usr_alice",
@@ -11,6 +14,7 @@ export const USERS: Member[] = [
     paynow: "+6591110001",
     paynowType: "mobile",
     email: "alice@example.com",
+    onboardedAt: SEED_ONBOARDED_AT,
   },
   {
     id: "usr_bob",
@@ -19,6 +23,7 @@ export const USERS: Member[] = [
     paynow: "+6592220002",
     paynowType: "mobile",
     email: "bob@example.com",
+    onboardedAt: SEED_ONBOARDED_AT,
   },
   {
     id: "usr_con",
@@ -27,6 +32,7 @@ export const USERS: Member[] = [
     paynow: "+6593330003",
     paynowType: "mobile",
     email: "con@example.com",
+    onboardedAt: SEED_ONBOARDED_AT,
   },
   {
     id: "usr_dana",
@@ -35,6 +41,7 @@ export const USERS: Member[] = [
     paynow: "+6594440004",
     paynowType: "mobile",
     email: "dana@example.com",
+    onboardedAt: SEED_ONBOARDED_AT,
   },
 ];
 

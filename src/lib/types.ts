@@ -49,6 +49,8 @@ export type Member = {
   paynow: string;
   paynowType: "mobile" | "uen";
   email?: string;
+  /** Set when the user has chosen a display name (welcome or settings). */
+  onboardedAt?: string | null;
 };
 
 export type Group = {

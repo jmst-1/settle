@@ -123,6 +123,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [publicPage, refresh]);
 
   useEffect(() => {
+    if (publicPage || state.loading || !state.currentUser.id) return;
+    const claim = new URLSearchParams(window.location.search).get("claim");
+    const withClaim = (path: string) =>
+      claim ? `${path}?claim=${encodeURIComponent(claim)}` : path;
+    if (!state.currentUser.onboardedAt && pathname !== "/welcome") {
+      router.replace(withClaim("/welcome"));
+      return;
+    }
+    if (state.currentUser.onboardedAt && pathname === "/welcome") {
+      router.replace(withClaim("/"));
+    }
+  }, [pathname, publicPage, router, state.currentUser.id, state.currentUser.onboardedAt, state.loading]);
+
+  useEffect(() => {
     if (publicPage) return;
     const sb = createClient();
     if (sb) {
