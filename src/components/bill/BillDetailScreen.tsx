@@ -8,14 +8,15 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
 import { billSections, personTotals } from "@/lib/debts";
-import { creatorName, userByName } from "@/lib/me";
+import { creatorName, tokenForPerson } from "@/lib/me";
 import { fmtDate, fmtMoney, origin } from "@/lib/format";
 import type { Bill } from "@/lib/types";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
+import { downloadShareCard } from "@/lib/share-card";
 
 export function BillDetailScreen({ bill }: { bill: Bill }) {
   const router = useRouter();
-  const { users, currentUser } = useMock();
+  const { users, contacts, currentUser } = useApp();
   const [tab, setTab] = useState<"summary" | "items">("summary");
   const [share, setShare] = useState<string | null>(null);
   const [card, setCard] = useState<string | null>(null);
@@ -24,8 +25,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
   const combined = (bill.receipts?.length ?? 0) > 1;
   const collected = Object.values(totals).reduce((s, t) => s + t.total, 0);
   const locked = Boolean(bill.lockedAt);
-  const canEdit =
-    !locked && (currentUser.superUser || currentUser.id === bill.createdBy);
+  const canEdit = !locked && currentUser.id === bill.createdBy;
 
   return (
     <div className="pb-10">
@@ -65,7 +65,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
             if (!t) return null;
             const color = nameColor(n, bill.names);
             const isPayer = n === bill.paidBy;
-            const token = userByName(users, n)?.shareToken;
+            const token = tokenForPerson(contacts, users, n, bill.createdBy);
             return (
               <div key={n} className="card">
                 <div
@@ -192,9 +192,24 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                         </span>
                       </div>
                     </div>
-                    <p className="text-center text-[12px] text-muted">
-                      PNG export lands in the production build. Use Send link for the live page.
+                    <p className="mb-3 text-center text-[12px] text-muted">
+                      Static snapshot — the settle link stays live.
                     </p>
+                    <button
+                      className="btn-primary"
+                      onClick={() =>
+                        downloadShareCard({
+                          name: n,
+                          occasion: bill.occasion,
+                          date: bill.billDate,
+                          items: t.items,
+                          total: t.total,
+                          color,
+                        })
+                      }
+                    >
+                      Download PNG
+                    </button>
                   </Sheet>
                 )}
               </div>

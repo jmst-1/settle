@@ -1,0 +1,14 @@
+create index on bills (owner_id, status);
+create index on bills (group_id);
+create index on bill_members (bill_id);
+create index on bill_items (bill_id);
+create index on bill_item_assignments (bill_item_id);
+create index on bill_debts (bill_id);
+create index on bill_debts (bill_id, settled);
+create index on settlements (from_member_id, to_member_id, settled);
+create index on members (share_token);
+create index on members (group_id);
+create index on members (linked_user_id);
+create index on receipt_inbox (owner_id, processed);
+create index on notifications (recipient_user_id, read_at);
+create index on members using gin (name gin_trgm_ops);

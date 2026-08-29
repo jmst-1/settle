@@ -50,8 +50,9 @@ export type InboxReceipt = {
   label: string;
   capturedAt: string;
   processed: boolean;
-  ocrKey: string;
   ownerId: string;
+  ocr?: OcrResult;
+  imagePath?: string;
 };
 
 export type Member = {
@@ -60,15 +61,25 @@ export type Member = {
   shareToken: string;
   paynow: string;
   paynowType: "mobile" | "uen";
-  superUser: boolean;
+  email?: string;
+};
+
+export type Group = {
+  id: string;
+  ownerId: string;
+  name: string;
+  isPersonal: boolean;
 };
 
 /** A person on one creator's roster. Same display name, different creator → different id. */
 export type Contact = {
   id: string;
   creatorId: string;
+  groupId: string;
   name: string;
   paynow: string;
+  shareToken: string;
+  linkedUserId?: string;
 };
 
 export type AppNotification = {
@@ -77,6 +88,7 @@ export type AppNotification = {
   createdAt: string;
   read: boolean;
   forName: string;
+  recipientUserId?: string;
 };
 
 export type OcrResult = {

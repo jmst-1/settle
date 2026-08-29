@@ -2,12 +2,12 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { BillDetailScreen } from "@/components/bill/BillDetailScreen";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 import { visibleBills } from "@/lib/me";
 
 export default function BillPage() {
   const { id } = useParams<{ id: string }>();
-  const { bills, currentUser } = useMock();
+  const { bills, currentUser } = useApp();
   const router = useRouter();
   const bill = visibleBills(bills, currentUser).find((b) => b.id === id);
   if (!bill) {

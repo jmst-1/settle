@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Camera, Check, ImageIcon } from "lucide-react";
 import { Label, Perf } from "@/components/ui/Typography";
 import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 import { fmtDateTime } from "@/lib/format";
 
 export function InboxScreen() {
-  const { inbox, captureInbox, currentUser } = useMock();
+  const { inbox, captureInbox, currentUser } = useApp();
   const params = useSearchParams();
   const router = useRouter();
   const unprocessed = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id);
@@ -136,8 +136,8 @@ export function InboxScreen() {
             setCapture(false);
             router.replace("/inbox");
           }}
-          onSave={(label) => {
-            captureInbox(label);
+          onSave={async (label, imagePath) => {
+            await captureInbox(label, imagePath);
             setCapture(false);
             router.replace("/inbox");
           }}
@@ -151,35 +151,67 @@ function CaptureModal({
   onSave,
   onClose,
 }: {
-  onSave: (label: string) => void;
+  onSave: (label: string, imagePath?: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [label, setLabel] = useState("");
-  const [snapped, setSnapped] = useState(false);
+  const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
 
-  const snap = () => {
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
     setBusy(true);
-    setTimeout(() => {
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      setPath(data.path);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
       setBusy(false);
-      setSnapped(true);
-    }, 800);
+    }
   };
 
   return (
     <Sheet title="Capture receipt" subtitle="Save now, split later" onClose={onClose}>
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void upload(e.target.files?.[0])}
+      />
+      <input
+        ref={libraryRef}
+        type="file"
+        accept="image/*,.heic,.heif"
+        className="hidden"
+        onChange={(e) => void upload(e.target.files?.[0])}
+      />
       <button
-        onClick={!snapped && !busy ? snap : undefined}
-        className={`mb-4 flex w-full flex-col items-center gap-2 rounded-[14px] border-2 border-dashed px-8 py-8 ${
-          snapped ? "border-ok/40 bg-ok/5" : "border-border bg-card-2"
+        onClick={!path && !busy ? () => cameraRef.current?.click() : undefined}
+        className={`mb-3 flex w-full flex-col items-center gap-2 rounded-[14px] border-2 border-dashed px-8 py-8 ${
+          path ? "border-ok/40 bg-ok/5" : "border-border bg-card-2"
         }`}
       >
-        <Camera size={28} className={snapped ? "text-ok" : "text-dim"} />
-        <div className={`text-sm font-bold ${snapped ? "text-ok" : "text-dim"}`}>
-          {snapped ? "Receipt captured" : busy ? "Snapping…" : "Take photo"}
+        <Camera size={28} className={path ? "text-ok" : "text-dim"} />
+        <div className={`text-sm font-bold ${path ? "text-ok" : "text-dim"}`}>
+          {path ? "Receipt captured" : busy ? "Uploading…" : "Take photo"}
         </div>
         <div className="text-xs text-muted">Camera or photo library</div>
       </button>
+      <button onClick={() => libraryRef.current?.click()} className="btn-ghost mb-4 py-2.5 text-sm">
+        <ImageIcon size={14} className="mr-1 inline" /> Photo library
+      </button>
+      {error && <div className="mb-3 text-[13px] text-danger">{error}</div>}
       <Label>
         Label <span className="font-normal normal-case tracking-normal text-muted">(optional)</span>
       </Label>
@@ -193,7 +225,11 @@ function CaptureModal({
         <button onClick={onClose} className="btn-ghost flex-1">
           Cancel
         </button>
-        <button onClick={() => onSave(label)} disabled={!snapped} className="btn-primary flex-[2] py-3 text-sm">
+        <button
+          onClick={() => void onSave(label, path || undefined)}
+          disabled={!path}
+          className="btn-primary flex-[2] py-3 text-sm"
+        >
           Save to inbox
         </button>
       </div>

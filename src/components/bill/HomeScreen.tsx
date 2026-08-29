@@ -4,12 +4,12 @@ import Link from "next/link";
 import { Settings, Users } from "lucide-react";
 import { Amt } from "@/components/ui/Typography";
 import { AvatarStack } from "@/components/ui/Avatar";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 import { fmtDate } from "@/lib/format";
 import { creatorName, myOutstanding, visibleBills } from "@/lib/me";
 
 export function HomeScreen() {
-  const { bills, users, currentUser } = useMock();
+  const { bills, users, currentUser } = useApp();
   const mine = visibleBills(bills, currentUser);
   const { owe, owed } = myOutstanding(mine, currentUser.name);
 
@@ -21,14 +21,7 @@ export function HomeScreen() {
             SplitTab
           </div>
           <h1 className="m-0 text-[28px] font-extrabold tracking-tight">Bills</h1>
-          <div className="mt-1 text-[13px] text-dim">
-            Hi, {currentUser.name}
-            {currentUser.superUser && (
-              <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">
-                Super
-              </span>
-            )}
-          </div>
+          <div className="mt-1 text-[13px] text-dim">Hi, {currentUser.name}</div>
         </div>
         <div className="flex gap-1 pt-1">
           <Link href="/groups" className="rounded-xl p-2 text-dim" aria-label="Groups">
@@ -74,9 +67,7 @@ export function HomeScreen() {
               </div>
             </div>
             <div className="mt-2 text-[11px] text-muted">
-              {currentUser.superUser
-                ? "Your balances. Super sees every tab below, including ones you’re not on."
-                : "Bills you’re on. Nets stay inside each creator’s tab."}
+              Bills you’re on. Nets stay inside each creator’s tab.
             </div>
             {(owe > 0 || owed > 0) && (
               <Link

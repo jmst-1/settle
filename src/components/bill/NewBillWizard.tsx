@@ -1,21 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Camera, ImageIcon, ListFilter, Pencil, Plus } from "lucide-react";
 import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
-import { DUMMY_OCR } from "@/lib/mock-data";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
+import { expandOcr } from "@/lib/ocr";
 import { matchRosterName, rosterFor } from "@/lib/me";
-import type { BillItem, BillReceipt, InboxReceipt, OcrResult } from "@/lib/types";
+import type { Bill, BillItem, BillReceipt, InboxReceipt, OcrResult } from "@/lib/types";
 
-const OCR_KEYS = ["bill-1", "bill-2", "bill-3", "bill-4"] as const;
-
-type DraftReceipt = BillReceipt & { inboxId?: string; ocrKey?: string };
-
+type DraftReceipt = BillReceipt & { inboxId?: string };
 type Step = "upload" | "review" | "people" | "assign";
 
 function newId() {
@@ -26,37 +23,10 @@ function emptyItem(receiptId: string): BillItem {
   return { name: "", price: 0, assignee: null, split: false, splitWith: [], receiptId };
 }
 
-function expandOcr(ocr: OcrResult, receiptId: string): BillItem[] {
-  return (ocr.items || []).flatMap((it) => {
-    const qty = it.qty || 1;
-    if (qty <= 1) {
-      return [
-        {
-          name: it.name,
-          price: parseFloat(String(it.unitPrice)) || 0,
-          assignee: null,
-          split: false,
-          splitWith: [],
-          receiptId,
-        },
-      ];
-    }
-    return Array.from({ length: qty }, (_, k) => ({
-      name: `${it.name} #${k + 1}`,
-      price: parseFloat(String(it.unitPrice)) || 0,
-      assignee: null,
-      split: false,
-      splitWith: [],
-      receiptId,
-    }));
-  });
-}
-
 function draftFromOcr(
   ocr: OcrResult,
   label: string,
   inboxId?: string,
-  ocrKey?: string,
 ): { receipt: DraftReceipt; items: BillItem[] } {
   const id = newId();
   return {
@@ -69,7 +39,6 @@ function draftFromOcr(
       tax: ocr.tax || 0,
       receiptTotal: ocr.total || 0,
       inboxId,
-      ocrKey,
     },
     items: expandOcr(ocr, id),
   };
@@ -91,9 +60,28 @@ function blankDraft(): { receipt: DraftReceipt; items: BillItem[] } {
   };
 }
 
-function nextOcrKey(used: (string | undefined)[]) {
-  const set = new Set(used.filter(Boolean));
-  return OCR_KEYS.find((k) => !set.has(k)) ?? OCR_KEYS[used.length % OCR_KEYS.length];
+function draftsFromBill(bill: Bill): { receipt: DraftReceipt; items: BillItem[] }[] {
+  if (bill.receipts && bill.receipts.length > 0) {
+    return bill.receipts.map((receipt) => ({
+      receipt,
+      items: bill.items.filter((it) => it.receiptId === receipt.id),
+    }));
+  }
+  const id = bill.id;
+  return [
+    {
+      receipt: {
+        id,
+        label: bill.occasion,
+        billDate: bill.billDate,
+        discount: bill.discount,
+        serviceCharge: bill.serviceCharge,
+        tax: bill.tax,
+        receiptTotal: bill.receiptTotal,
+      },
+      items: bill.items.map((it) => ({ ...it, receiptId: it.receiptId || id })),
+    },
+  ];
 }
 
 function samePeople(a: string[], b: string[]) {
@@ -111,8 +99,7 @@ function isEqualSplit(items: BillItem[], names: string[]) {
 
 function loadInboxDrafts(sources: InboxReceipt[]) {
   return sources.map((rx) => {
-    const ocr = DUMMY_OCR[rx.ocrKey];
-    if (ocr) return draftFromOcr(ocr, rx.label || ocr.occasion, rx.id, rx.ocrKey);
+    if (rx.ocr) return draftFromOcr(rx.ocr, rx.label || rx.ocr.occasion, rx.id);
     const blank = blankDraft();
     blank.receipt.inboxId = rx.id;
     blank.receipt.label = rx.label || blank.receipt.label;
@@ -120,10 +107,10 @@ function loadInboxDrafts(sources: InboxReceipt[]) {
   });
 }
 
-export function NewBillWizard() {
+export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const router = useRouter();
   const params = useSearchParams();
-  const { saveBill, currentUser, contacts, addContact, inbox } = useMock();
+  const { saveBill, updateBill, currentUser, contacts, addContact, inbox } = useApp();
   const mode = params.get("mode") || "scan";
   const rxIds = (params.get("rx") || "")
     .split(",")
@@ -133,8 +120,9 @@ export function NewBillWizard() {
     .map((id) => inbox.find((r) => r.id === id))
     .filter((r): r is InboxReceipt => Boolean(r));
 
-  const initialDrafts =
-    sourceReceipts.length > 0
+  const initialDrafts = editBill
+    ? draftsFromBill(editBill)
+    : sourceReceipts.length > 0
       ? loadInboxDrafts(sourceReceipts)
       : mode === "manual"
         ? [blankDraft()]
@@ -142,28 +130,32 @@ export function NewBillWizard() {
 
   const labels = sourceReceipts.map((r) => r.label).filter(Boolean);
   const sameLabel = labels.length > 0 && labels.every((l) => l === labels[0]);
-  const firstOcr = sourceReceipts[0] ? DUMMY_OCR[sourceReceipts[0].ocrKey] : null;
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
+  const addCameraRef = useRef<HTMLInputElement>(null);
+  const addLibraryRef = useRef<HTMLInputElement>(null);
+  const [ocrError, setOcrError] = useState("");
 
   const [step, setStep] = useState<Step>(
-    initialDrafts.length ? "review" : mode === "manual" ? "review" : "upload",
+    initialDrafts.length || editBill ? "review" : mode === "manual" ? "review" : "upload",
   );
   const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState(sourceReceipts.length > 0);
+  const [scanned, setScanned] = useState(sourceReceipts.length > 0 || Boolean(editBill));
   const [occasion, setOccasion] = useState(
-    sameLabel
-      ? labels[0]
-      : sourceReceipts[0]?.label || firstOcr?.occasion || "",
+    editBill?.occasion ||
+      (sameLabel ? labels[0] : sourceReceipts[0]?.label || sourceReceipts[0]?.ocr?.occasion || ""),
   );
   const [billDate, setBillDate] = useState(() => {
+    if (editBill?.billDate) return editBill.billDate;
     const dates = initialDrafts.map((d) => d.receipt.billDate).filter(Boolean).sort();
     return dates[0] || new Date().toISOString().slice(0, 10);
   });
   const [receipts, setReceipts] = useState<DraftReceipt[]>(initialDrafts.map((d) => d.receipt));
   const [items, setItems] = useState<BillItem[]>(initialDrafts.flatMap((d) => d.items));
-  const [names, setNames] = useState<string[]>([currentUser.name]);
+  const [names, setNames] = useState<string[]>(editBill?.names ?? [currentUser.name]);
   const [newName, setNewName] = useState("");
-  const [paidBy, setPaidBy] = useState(currentUser.name);
-  const [payNow, setPayNow] = useState(currentUser.paynow);
+  const [paidBy, setPaidBy] = useState(editBill?.paidBy || currentUser.name);
+  const [payNow, setPayNow] = useState(editBill?.payNowNumber || currentUser.paynow);
   const [equalConfirm, setEqualConfirm] = useState(false);
   const [splitPicker, setSplitPicker] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
@@ -204,12 +196,25 @@ export function NewBillWizard() {
     }
   };
 
-  const handleScan = (append: boolean) => {
+  const handleFile = async (file: File | undefined, append = false) => {
+    if (!file) return;
     setScanning(true);
-    setTimeout(() => {
-      const key = nextOcrKey(receipts.map((r) => r.ocrKey));
-      const ocr = DUMMY_OCR[key];
-      const draft = draftFromOcr(ocr, ocr.occasion, undefined, key);
+    setOcrError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const up = await fetch("/api/upload", { method: "POST", body: form });
+      const upData = await up.json();
+      if (!up.ok) throw new Error(upData.error || "Upload failed");
+      const ocrRes = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: upData.path }),
+      });
+      const ocrData = await ocrRes.json();
+      if (!ocrRes.ok) throw new Error(ocrData.error || "Could not read receipt");
+      const ocr = ocrData.ocr as OcrResult;
+      const draft = draftFromOcr(ocr, ocr.occasion);
       if (append) appendDraft(draft);
       else {
         setReceipts([draft.receipt]);
@@ -219,50 +224,50 @@ export function NewBillWizard() {
         setScanned(true);
         setStep("review");
       }
-      setScanning(false);
       setAdding(false);
-    }, 1400);
+    } catch (e) {
+      setOcrError((e as Error).message);
+    } finally {
+      setScanning(false);
+    }
   };
 
-  const persist = (billItems: BillItem[]) => {
-    saveBill(
-      {
-        id: crypto.randomUUID(),
-        occasion: occasion || "Untitled bill",
-        billDate,
-        currency: "SGD",
-        items: billItems,
-        names: [...names],
-        discount,
-        serviceCharge: sc,
-        tax,
-        receiptTotal: receiptTotal || derivedTotal,
-        paidBy,
-        payNowNumber: payNow,
-        createdBy: currentUser.id,
-        createdAt: new Date().toISOString(),
-        receipts: receipts.map(
-          ({ id, label, billDate: date, discount: d, serviceCharge, tax: gst, receiptTotal: total }) => ({
-            id,
-            label,
-            billDate: date,
-            discount: d,
-            serviceCharge,
-            tax: gst,
-            receiptTotal: total,
-          }),
-        ),
-      },
-      receipts.map((r) => r.inboxId).filter((id): id is string => Boolean(id)),
-    );
-    router.push("/");
+  const persist = async (billItems: BillItem[]) => {
+    const payload = {
+      occasion: occasion || "Untitled bill",
+      billDate,
+      currency: "SGD" as const,
+      items: billItems,
+      names: [...names],
+      discount,
+      serviceCharge: sc,
+      tax,
+      receiptTotal: receiptTotal || derivedTotal,
+      paidBy,
+      payNowNumber: payNow,
+      receipts: receipts.map(
+        ({ id, label, billDate: date, discount: d, serviceCharge, tax: gst, receiptTotal: total }) => ({
+          id,
+          label,
+          billDate: date,
+          discount: d,
+          serviceCharge,
+          tax: gst,
+          receiptTotal: total,
+        }),
+      ),
+    };
+    const inboxIds = receipts.map((r) => r.inboxId).filter((id): id is string => Boolean(id));
+    if (editBill) await updateBill(editBill.id, payload);
+    else await saveBill(payload, inboxIds);
+    router.push(editBill ? `/bills/${editBill.id}` : "/");
   };
 
-  const addName = (n?: string) => {
+  const addName = async (n?: string) => {
     const raw = (n ?? newName).trim();
     if (!raw) return;
     const hit = matchRosterName(contacts, currentUser.id, raw);
-    const name = hit?.name ?? addContact(raw).name;
+    const name = hit?.name ?? (await addContact(raw)).name;
     if (!names.includes(name)) {
       setNames((p) => [...p, name]);
       if (!paidBy) setPaidBy(name);
@@ -290,10 +295,29 @@ export function NewBillWizard() {
 
       {step === "upload" && (
         <>
-          <SectionHeader title="New bill" subtitle="Scan or enter manually" onBack={() => router.push("/")} />
+          <SectionHeader
+            title={editBill ? "Edit bill" : "New bill"}
+            subtitle="Scan or enter manually"
+            onBack={() => router.push(editBill ? `/bills/${editBill.id}` : "/")}
+          />
           <div className="flex flex-col gap-3.5 px-5">
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => void handleFile(e.target.files?.[0], false)}
+            />
+            <input
+              ref={libraryRef}
+              type="file"
+              accept="image/*,.heic,.heif"
+              className="hidden"
+              onChange={(e) => void handleFile(e.target.files?.[0], false)}
+            />
             <button
-              onClick={!scanning ? () => handleScan(false) : undefined}
+              onClick={!scanning ? () => cameraRef.current?.click() : undefined}
               className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-accent/30 bg-accent/[0.04] px-8 py-10"
             >
               <Camera size={32} className="text-accent" />
@@ -305,10 +329,10 @@ export function NewBillWizard() {
                   <div className="h-full w-1/3 rounded-sm bg-accent" style={{ animation: "scan 1.4s ease-in-out infinite" }} />
                 </div>
               ) : (
-                <div className="text-[13px] text-muted">Mock OCR uses the Handlebar receipt</div>
+                <div className="text-[13px] text-muted">Camera captures a receipt photo</div>
               )}
             </button>
-            <button onClick={() => handleScan(false)} className="btn-ghost flex items-center justify-center gap-2">
+            <button onClick={() => libraryRef.current?.click()} className="btn-ghost flex items-center justify-center gap-2">
               <ImageIcon size={16} /> Photo library
             </button>
             <button
@@ -324,6 +348,11 @@ export function NewBillWizard() {
             >
               <Pencil size={16} /> Enter manually
             </button>
+            {ocrError && (
+              <div className="rounded-xl border border-danger/20 bg-danger/10 px-3.5 py-3 text-[13px] text-danger">
+                {ocrError}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -339,7 +368,13 @@ export function NewBillWizard() {
                   ? "OCR complete — edit anything that's off"
                   : "Enter your items"
             }
-            onBack={() => (fromInbox ? router.push("/inbox") : setStep("upload"))}
+            onBack={() =>
+              editBill
+                ? router.push(`/bills/${editBill.id}`)
+                : fromInbox
+                  ? router.push("/inbox")
+                  : setStep("upload")
+            }
           />
           <div className="flex flex-col gap-3.5 px-5">
             <div className="card">
@@ -511,7 +546,7 @@ export function NewBillWizard() {
                 <Label>Your people</Label>
                 <p className="mb-2 mt-1 text-[11px] leading-relaxed text-muted">
                   This is {currentUser.name}&apos;s roster. A Bob you add here is not Alice&apos;s
-                  Bob until a super-user merge.
+                  Bob until you merge them later.
                 </p>
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {recent.map((n) => {
@@ -523,7 +558,7 @@ export function NewBillWizard() {
                         onClick={() => {
                           if (mine && on) return;
                           if (on) setNames((p) => p.filter((x) => x !== n));
-                          else addName(n);
+                          else void addName(n);
                         }}
                         className="flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-bold"
                         style={{
@@ -542,11 +577,11 @@ export function NewBillWizard() {
                   <input
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addName()}
+                    onKeyDown={(e) => e.key === "Enter" && void addName()}
                     placeholder="Add someone new…"
                     className="field"
                   />
-                  <button onClick={() => addName()} className="shrink-0 rounded-xl bg-accent px-4 font-extrabold text-white">
+                  <button onClick={() => void addName()} className="shrink-0 rounded-xl bg-accent px-4 font-extrabold text-white">
                     Add
                   </button>
                 </div>
@@ -742,7 +777,7 @@ export function NewBillWizard() {
               disabled={!allAssigned || !names.length || !paidBy}
               onClick={() => {
                 if (isEqualSplit(items, names)) setEqualConfirm(true);
-                else persist(items);
+                else void persist(items);
               }}
               className="btn-primary"
             >
@@ -777,18 +812,32 @@ export function NewBillWizard() {
           subtitle="Append a slip to this bill"
           onClose={() => !scanning && setAdding(false)}
         >
+          <input
+            ref={addCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => void handleFile(e.target.files?.[0], true)}
+          />
+          <input
+            ref={addLibraryRef}
+            type="file"
+            accept="image/*,.heic,.heif"
+            className="hidden"
+            onChange={(e) => void handleFile(e.target.files?.[0], true)}
+          />
           <button
-            onClick={!scanning ? () => handleScan(true) : undefined}
+            onClick={!scanning ? () => addCameraRef.current?.click() : undefined}
             className="mb-2.5 flex w-full flex-col items-center gap-2 rounded-[14px] border-2 border-dashed border-accent/30 bg-accent/[0.04] px-8 py-8"
           >
             <Camera size={28} className="text-accent" />
             <div className="text-sm font-bold text-accent">
               {scanning ? "Reading receipt…" : "Take photo"}
             </div>
-            <div className="text-xs text-muted">Mock OCR picks the next unused slip</div>
           </button>
           <button
-            onClick={() => handleScan(true)}
+            onClick={() => addLibraryRef.current?.click()}
             disabled={scanning}
             className="btn-ghost mb-2.5 flex items-center justify-center gap-2"
           >
@@ -804,6 +853,11 @@ export function NewBillWizard() {
           >
             <Pencil size={16} /> Enter manually
           </button>
+          {ocrError && (
+            <div className="mt-3 rounded-xl border border-danger/20 bg-danger/10 px-3.5 py-3 text-[13px] text-danger">
+              {ocrError}
+            </div>
+          )}
         </Sheet>
       )}
 
@@ -820,7 +874,7 @@ export function NewBillWizard() {
               splitWith: [...names],
               assignee: null,
             }));
-            persist(equalItems);
+            void persist(equalItems);
           }}
         />
       )}
