@@ -32,6 +32,7 @@ function mapProfile(
     display_name: string | null;
     default_paynow: string | null;
     email?: string | null;
+    onboarded_at?: string | null;
   },
   shareToken: string,
   email?: string | null,
@@ -43,6 +44,7 @@ function mapProfile(
     paynow: row.default_paynow || "",
     paynowType: "mobile",
     email: email ?? row.email ?? undefined,
+    onboardedAt: row.onboarded_at ?? null,
   };
 }
 
@@ -306,9 +308,20 @@ export async function clientState(userId: string): Promise<ClientState | null> {
 
 export async function setProfile(userId: string, name: string, paynow: string) {
   const sb = admin();
+  const now = new Date().toISOString();
+  const { data: existing } = await sb
+    .from("user_profiles")
+    .select("onboarded_at")
+    .eq("id", userId)
+    .maybeSingle();
   await sb
     .from("user_profiles")
-    .update({ display_name: name, default_paynow: paynow, updated_at: new Date().toISOString() })
+    .update({
+      display_name: name,
+      default_paynow: paynow,
+      onboarded_at: existing?.onboarded_at ?? now,
+      updated_at: now,
+    })
     .eq("id", userId);
   await sb.from("members").update({ name, paynow }).eq("linked_user_id", userId);
   return clientState(userId);

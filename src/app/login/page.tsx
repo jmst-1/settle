@@ -63,7 +63,10 @@ function LoginForm() {
               if (!res.ok) throw new Error(data.error || "Could not send link");
               setMode(data.mode === "demo" ? "demo" : "email");
               setSent(true);
-              if (data.mode === "demo") router.replace(next);
+              if (data.mode === "demo") {
+                const dest = data.user && !data.user.onboardedAt ? "/welcome" : next;
+                router.replace(dest);
+              }
             } catch (err) {
               setError((err as Error).message);
             } finally {
