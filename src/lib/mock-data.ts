@@ -1,5 +1,14 @@
 import { computeDebts } from "@/lib/debts";
-import type { Bill, Contact, Group, InboxReceipt, Member, OcrResult, PayeePair } from "@/lib/types";
+import type {
+  Bill,
+  CardTransaction,
+  Contact,
+  Group,
+  InboxReceipt,
+  Member,
+  OcrResult,
+  PayeePair,
+} from "@/lib/types";
 
 export const DEMO_USER_ID = "usr_alice";
 
@@ -279,6 +288,24 @@ export const SEED_INBOX: InboxReceipt[] = [
     processed: false,
     ownerId: "usr_alice",
     ocr: DUMMY_OCR["bill-4"],
+  },
+];
+
+export const SEED_TRANSACTIONS: CardTransaction[] = [
+  {
+    id: "txn_burnt",
+    ownerId: "usr_alice",
+    gmailMessageId: "seed-burnt-ends",
+    merchant: "Burnt Ends",
+    merchantNorm: "burnt ends",
+    amount: 48.2,
+    currency: "SGD",
+    txnDate: "2026-08-28",
+    category: "dining",
+    confidence: 0.8,
+    sourceFrom: "alert@dbs.com",
+    status: "pending",
+    createdAt: "2026-08-28T21:14:00Z",
   },
 ];
 

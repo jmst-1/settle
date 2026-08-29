@@ -97,6 +97,67 @@ export type AppNotification = {
   read: boolean;
   forName: string;
   recipientUserId?: string;
+  type?: "paid" | "suggested_split";
+};
+
+export type TxnCategory = "dining" | "other";
+export type TxnStatus = "pending" | "dismissed" | "converted" | "matched";
+export type MerchantRuleKind = "never_split" | "always_prompt";
+
+export type AlertSettings = {
+  amountThreshold: number;
+  diningOnly: boolean;
+  emailBack: boolean;
+  enabled: boolean;
+};
+
+export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
+  amountThreshold: 30,
+  diningOnly: true,
+  emailBack: false,
+  enabled: true,
+};
+
+export type GmailStatus = {
+  configured: boolean;
+  connected: boolean;
+  email?: string;
+  lastSyncAt?: string | null;
+};
+
+export type CardTransaction = {
+  id: string;
+  ownerId: string;
+  gmailMessageId: string;
+  merchant: string;
+  merchantNorm: string;
+  amount: number;
+  currency: string;
+  txnDate: string;
+  category: TxnCategory;
+  confidence: number;
+  sourceFrom?: string;
+  status: TxnStatus;
+  matchedBillId?: string;
+  createdAt: string;
+};
+
+export type MerchantRule = {
+  id: string;
+  ownerId: string;
+  merchantNorm: string;
+  rule: MerchantRuleKind;
+  dismissCount: number;
+  confirmCount: number;
+};
+
+export type ParsedTransaction = {
+  merchant: string;
+  amount: number;
+  currency: string;
+  date: string;
+  isDining: boolean;
+  confidence: number;
 };
 
 export type OcrResult = {

@@ -1,6 +1,7 @@
 import { computeDebts, isInternalPairDebt } from "@/lib/debts";
 import { demoSeedEnabled } from "@/lib/config";
 import { debtMatchesExpanded, expandPairNames, matchRosterName, pairsForCreator } from "@/lib/me";
+import { afterConfirm, afterDismiss, alwaysSkip } from "@/lib/alerts/learn";
 import {
   DEMO_USER_ID,
   SEED_BILLS,
@@ -8,18 +9,34 @@ import {
   SEED_GROUPS,
   SEED_INBOX,
   SEED_PAIRS,
+  SEED_TRANSACTIONS,
   USERS,
 } from "@/lib/mock-data";
 import type {
+  AlertSettings,
   AppNotification,
   Bill,
+  CardTransaction,
   Contact,
+  GmailStatus,
   Group,
   InboxReceipt,
   Member,
+  MerchantRule,
   OcrResult,
   PayeePair,
 } from "@/lib/types";
+import { DEFAULT_ALERT_SETTINGS } from "@/lib/types";
+import { emailBackConfigured, gmailOAuthConfigured } from "@/lib/alerts/email-back";
+
+export type StoredGmailConnection = {
+  userId: string;
+  email: string;
+  refreshTokenEnc: string;
+  historyId?: string | null;
+  watchExpiration?: string | null;
+  lastSyncAt?: string | null;
+};
 
 export type AppSnapshot = {
   users: Member[];
@@ -29,10 +46,26 @@ export type AppSnapshot = {
   bills: Bill[];
   inbox: InboxReceipt[];
   notifications: AppNotification[];
+  transactions: CardTransaction[];
+  alertSettings: Record<string, AlertSettings>;
+  merchantRules: MerchantRule[];
+  gmailConnections: StoredGmailConnection[];
 };
 
-export type ClientState = AppSnapshot & {
+export type ClientState = {
+  users: Member[];
+  contacts: Contact[];
+  groups: Group[];
+  pairs: PayeePair[];
+  bills: Bill[];
+  inbox: InboxReceipt[];
+  notifications: AppNotification[];
   currentUser: Member;
+  transactions: CardTransaction[];
+  alertSettings: AlertSettings;
+  gmail: GmailStatus;
+  merchantRules: MerchantRule[];
+  emailBackConfigured: boolean;
 };
 
 const g = globalThis as unknown as { __splittab?: AppSnapshot };
@@ -50,6 +83,10 @@ function emptySnapshot(): AppSnapshot {
     bills: [],
     inbox: [],
     notifications: [],
+    transactions: [],
+    alertSettings: {},
+    merchantRules: [],
+    gmailConnections: [],
   };
 }
 
@@ -62,6 +99,10 @@ function seedSnapshot(): AppSnapshot {
     bills: clone(SEED_BILLS),
     inbox: clone(SEED_INBOX),
     notifications: [],
+    transactions: clone(SEED_TRANSACTIONS),
+    alertSettings: {},
+    merchantRules: [],
+    gmailConnections: [],
   };
   snap.bills = snap.bills.map((b) => settleInternalPairDebts(b, snap.pairs));
   return snap;
@@ -72,6 +113,10 @@ export function getSnapshot(): AppSnapshot {
     g.__splittab = demoSeedEnabled() ? seedSnapshot() : emptySnapshot();
   }
   if (!g.__splittab.pairs) g.__splittab.pairs = [];
+  if (!g.__splittab.transactions) g.__splittab.transactions = [];
+  if (!g.__splittab.alertSettings) g.__splittab.alertSettings = {};
+  if (!g.__splittab.merchantRules) g.__splittab.merchantRules = [];
+  if (!g.__splittab.gmailConnections) g.__splittab.gmailConnections = [];
   return g.__splittab;
 }
 
@@ -188,7 +233,111 @@ export function clientState(userId: string): ClientState | null {
       snap.notifications.filter((n) => n.forName === currentUser.name || n.recipientUserId === userId),
     ),
     currentUser: clone(currentUser),
+    transactions: clone(snap.transactions.filter((t) => t.ownerId === userId)),
+    alertSettings: clone(snap.alertSettings[userId] ?? DEFAULT_ALERT_SETTINGS),
+    gmail: gmailStatusFor(userId),
+    merchantRules: clone(snap.merchantRules.filter((r) => r.ownerId === userId)),
+    emailBackConfigured: emailBackConfigured(),
   };
+}
+
+function gmailStatusFor(userId: string): GmailStatus {
+  const row = getSnapshot().gmailConnections.find((c) => c.userId === userId);
+  return {
+    configured: gmailOAuthConfigured(),
+    connected: Boolean(row),
+    email: row?.email,
+    lastSyncAt: row?.lastSyncAt ?? null,
+  };
+}
+
+export function getAlertSettings(userId: string): AlertSettings {
+  return clone(getSnapshot().alertSettings[userId] ?? DEFAULT_ALERT_SETTINGS);
+}
+
+export function updateAlertSettings(userId: string, patch: Partial<AlertSettings>): AlertSettings {
+  const snap = getSnapshot();
+  const next = { ...(snap.alertSettings[userId] ?? DEFAULT_ALERT_SETTINGS), ...patch };
+  snap.alertSettings[userId] = next;
+  return clone(next);
+}
+
+export function getGmailConnection(userId: string): StoredGmailConnection | null {
+  return getSnapshot().gmailConnections.find((c) => c.userId === userId) ?? null;
+}
+
+export function listGmailConnections(): StoredGmailConnection[] {
+  return [...getSnapshot().gmailConnections];
+}
+
+export function saveGmailConnection(row: StoredGmailConnection) {
+  const snap = getSnapshot();
+  const idx = snap.gmailConnections.findIndex((c) => c.userId === row.userId);
+  if (idx >= 0) snap.gmailConnections[idx] = row;
+  else snap.gmailConnections.push(row);
+}
+
+export function deleteGmailConnection(userId: string) {
+  const snap = getSnapshot();
+  snap.gmailConnections = snap.gmailConnections.filter((c) => c.userId !== userId);
+}
+
+export function getTransaction(userId: string, id: string) {
+  return getSnapshot().transactions.find((t) => t.id === id && t.ownerId === userId) ?? null;
+}
+
+export function findTransactionByMessage(userId: string, gmailMessageId: string) {
+  return (
+    getSnapshot().transactions.find(
+      (t) => t.ownerId === userId && t.gmailMessageId === gmailMessageId,
+    ) ?? null
+  );
+}
+
+export function insertTransaction(row: CardTransaction) {
+  const snap = getSnapshot();
+  snap.transactions.unshift(row);
+  return row;
+}
+
+export function updateTransaction(userId: string, id: string, patch: Partial<CardTransaction>) {
+  const snap = getSnapshot();
+  const idx = snap.transactions.findIndex((t) => t.id === id && t.ownerId === userId);
+  if (idx < 0) throw new Error("Transaction not found");
+  snap.transactions[idx] = { ...snap.transactions[idx], ...patch };
+  return snap.transactions[idx];
+}
+
+export function getMerchantRule(userId: string, merchantNorm: string) {
+  return getSnapshot().merchantRules.find((r) => r.ownerId === userId && r.merchantNorm === merchantNorm) ?? null;
+}
+
+export function listMerchantRules(userId: string) {
+  return getSnapshot().merchantRules.filter((r) => r.ownerId === userId);
+}
+
+export function upsertMerchantRule(rule: MerchantRule) {
+  const snap = getSnapshot();
+  const idx = snap.merchantRules.findIndex(
+    (r) => r.ownerId === rule.ownerId && r.merchantNorm === rule.merchantNorm,
+  );
+  const next: MerchantRule = { ...rule, id: rule.id || crypto.randomUUID() };
+  if (idx >= 0) snap.merchantRules[idx] = { ...next, id: snap.merchantRules[idx].id };
+  else snap.merchantRules.push(next);
+  return idx >= 0 ? snap.merchantRules[idx] : next;
+}
+
+export function insertNotification(n: AppNotification) {
+  getSnapshot().notifications.unshift(n);
+}
+
+export function markSuggestedRead(userId: string) {
+  const snap = getSnapshot();
+  snap.notifications.forEach((n) => {
+    if (n.type === "suggested_split" && (n.recipientUserId === userId || n.forName === getUser(userId)?.name)) {
+      n.read = true;
+    }
+  });
 }
 
 export function setProfile(userId: string, name: string, paynow: string) {
@@ -270,6 +419,7 @@ export function saveBill(
     createdAt?: string;
   },
   inboxIds?: string | string[],
+  transactionId?: string,
 ) {
   const snap = getSnapshot();
   upsertRoster(userId, input.names, input.payNowNumber, input.paidBy);
@@ -290,6 +440,7 @@ export function saveBill(
       idSet.has(r.id) && r.ownerId === userId ? { ...r, processed: true } : r,
     );
   }
+  if (transactionId) convertTransaction(userId, transactionId, bill.id);
   return bill;
 }
 
@@ -321,6 +472,10 @@ export function updateBill(
 
 export function getBill(billId: string) {
   return getSnapshot().bills.find((b) => b.id === billId) ?? null;
+}
+
+export function listBillsForUser(userId: string) {
+  return getSnapshot().bills.filter((b) => b.createdBy === userId);
 }
 
 export function settlePair(userId: string, from: string, to: string, creatorId: string) {
@@ -458,7 +613,9 @@ export function markNotificationsRead(userId: string) {
   const user = getUser(userId);
   if (!user) return;
   snap.notifications.forEach((n) => {
-    if (n.forName === user.name || n.recipientUserId === userId) n.read = true;
+    if ((n.forName === user.name || n.recipientUserId === userId) && n.type !== "suggested_split") {
+      n.read = true;
+    }
   });
 }
 
@@ -534,6 +691,50 @@ export function uncombinePayees(userId: string, pairId: string) {
   if (!pair || pair.creatorId !== userId) throw new Error("Pair not found");
   snap.pairs = snap.pairs.filter((p) => p.id !== pairId);
   return clientState(userId);
+}
+
+export function convertTransaction(userId: string, id: string, billId: string) {
+  const txn = getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const next = updateTransaction(userId, id, { status: "converted", matchedBillId: billId });
+  const existing = getMerchantRule(userId, txn.merchantNorm);
+  upsertMerchantRule(afterConfirm(existing, txn.merchantNorm, userId));
+  return next;
+}
+
+export function dismissTransaction(userId: string, id: string) {
+  const txn = getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const next = updateTransaction(userId, id, { status: "dismissed" });
+  const existing = getMerchantRule(userId, txn.merchantNorm);
+  upsertMerchantRule(afterDismiss(existing, txn.merchantNorm, userId));
+  return next;
+}
+
+export function undoTransaction(userId: string, id: string) {
+  const txn = getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  return updateTransaction(userId, id, { status: "pending", matchedBillId: undefined });
+}
+
+export function neverSplitTransaction(userId: string, id: string) {
+  const txn = getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const next = updateTransaction(userId, id, { status: "dismissed" });
+  const existing = getMerchantRule(userId, txn.merchantNorm);
+  upsertMerchantRule(alwaysSkip(existing, txn.merchantNorm, userId));
+  return next;
+}
+
+export function matchTransaction(userId: string, id: string, billId: string) {
+  const txn = getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const bill = getBill(billId);
+  if (!bill) throw new Error("Bill not found");
+  const next = updateTransaction(userId, id, { status: "matched", matchedBillId: billId });
+  const existing = getMerchantRule(userId, txn.merchantNorm);
+  upsertMerchantRule(afterConfirm(existing, txn.merchantNorm, userId));
+  return next;
 }
 
 export const DEMO_DEFAULT_USER = DEMO_USER_ID;

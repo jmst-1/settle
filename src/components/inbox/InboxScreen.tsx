@@ -2,18 +2,30 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, Check, ImageIcon } from "lucide-react";
+import { Camera, Check, ImageIcon, Utensils } from "lucide-react";
 import { Label, Perf } from "@/components/ui/Typography";
 import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
 import { useApp } from "@/context/AppStore";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
+import type { CardTransaction } from "@/lib/types";
 
 export function InboxScreen() {
-  const { inbox, captureInbox, currentUser } = useApp();
+  const {
+    inbox,
+    captureInbox,
+    currentUser,
+    transactions,
+    bills,
+    actOnTransaction,
+    markSuggestedRead,
+  } = useApp();
   const params = useSearchParams();
   const router = useRouter();
   const unprocessed = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id);
+  const pending = transactions.filter((t) => t.status === "pending" && t.ownerId === currentUser.id);
   const [capture, setCapture] = useState(false);
+  const [scanTxn, setScanTxn] = useState<CardTransaction | null>(null);
+  const [linkTxn, setLinkTxn] = useState<CardTransaction | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [combineConfirm, setCombineConfirm] = useState(false);
 
@@ -21,8 +33,14 @@ export function InboxScreen() {
     if (params.get("capture") === "1") setCapture(true);
   }, [params]);
 
+  useEffect(() => {
+    if (pending.length) void markSuggestedRead();
+  }, [pending.length, markSuggestedRead]);
+
   const selectable = unprocessed.length >= 2;
   const selectedReceipts = unprocessed.filter((r) => selected.includes(r.id));
+  const waiting = pending.length + unprocessed.length;
+  const myBills = bills.filter((b) => b.createdBy === currentUser.id).slice(0, 12);
 
   const toggle = (id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -36,16 +54,78 @@ export function InboxScreen() {
         </div>
         <h1 className="m-0 text-[28px] font-extrabold tracking-tight">Inbox</h1>
         <div className="mt-1 text-[13px] text-dim">{currentUser.name}&apos;s captures</div>
-        {unprocessed.length > 0 && (
+        {waiting > 0 && (
           <div className="mt-1 text-[13px] text-muted">
-            {unprocessed.length} receipt{unprocessed.length !== 1 ? "s" : ""} waiting to split
-            {selectable ? " · tap to combine" : ""}
+            {waiting} waiting to split
+            {selectable ? " · tap receipts to combine" : ""}
           </div>
         )}
       </div>
 
       <div className="flex flex-col gap-2.5 px-5">
-        {unprocessed.length === 0 ? (
+        {pending.map((t) => {
+          const suggested = t.matchedBillId ? bills.find((b) => b.id === t.matchedBillId) : undefined;
+          return (
+            <div key={t.id} className="card">
+              <div className="flex items-center gap-3.5 px-4 py-3.5">
+                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[10px] border border-border bg-card-2 text-accent">
+                  <Utensils size={22} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-bold">{t.merchant}</div>
+                  <div className="mt-0.5 font-mono text-[11px] text-muted">
+                    {fmtMoney(t.amount, t.currency)} · {fmtDate(t.txnDate)}
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-warn">
+                  Split?
+                </span>
+              </div>
+              <Perf />
+              <div className="p-4">
+                <p className="mb-3 text-[13px] text-dim">
+                  {suggested
+                    ? `Looks like your ${suggested.occasion} bill — link it, or scan a receipt?`
+                    : "Split expense detected. Scan a receipt?"}
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => setScanTxn(t)}
+                    className="btn-primary py-2.5 text-sm"
+                  >
+                    Scan receipt
+                  </button>
+                  <button
+                    onClick={() => router.push(`/bills/new?mode=alert&txn=${t.id}`)}
+                    className="btn-ghost py-2.5 text-sm"
+                  >
+                    Split without photo
+                  </button>
+                  {suggested ? (
+                    <button
+                      onClick={() => void actOnTransaction(t.id, "match", suggested.id)}
+                      className="btn-ghost py-2.5 text-sm"
+                    >
+                      Link existing bill
+                    </button>
+                  ) : (
+                    <button onClick={() => setLinkTxn(t)} className="btn-ghost py-2.5 text-sm">
+                      This is an existing bill
+                    </button>
+                  )}
+                  <button
+                    onClick={() => void actOnTransaction(t.id, "dismiss")}
+                    className="btn-ghost py-2.5 text-sm text-muted"
+                  >
+                    Not for splitting
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {unprocessed.length === 0 && pending.length === 0 ? (
           <div className="py-16 text-center">
             <div className="mb-3 text-[17px] font-bold">Inbox empty</div>
             <p className="text-[13px] text-muted">Capture a receipt to process later</p>
@@ -130,18 +210,60 @@ export function InboxScreen() {
         />
       )}
 
-      {capture && (
+      {(capture || scanTxn) && (
         <CaptureModal
+          title={scanTxn ? "Scan receipt" : "Capture receipt"}
+          subtitle={scanTxn ? `${fmtMoney(scanTxn.amount)} at ${scanTxn.merchant}` : "Save now, split later"}
+          defaultLabel={scanTxn?.merchant}
           onClose={() => {
             setCapture(false);
+            setScanTxn(null);
             router.replace("/inbox");
           }}
           onSave={async (label, imagePath) => {
-            await captureInbox(label, imagePath);
+            const id = await captureInbox(label, imagePath);
+            const txn = scanTxn;
             setCapture(false);
-            router.replace("/inbox");
+            setScanTxn(null);
+            if (txn) {
+              router.replace(
+                `/bills/new?mode=alert&txn=${txn.id}${id ? `&rx=${id}` : ""}`,
+              );
+            } else {
+              router.replace("/inbox");
+            }
           }}
         />
+      )}
+
+      {linkTxn && (
+        <Sheet
+          title="Link to a bill"
+          subtitle={`Match ${fmtMoney(linkTxn.amount)} at ${linkTxn.merchant}`}
+          onClose={() => setLinkTxn(null)}
+        >
+          {myBills.length === 0 ? (
+            <p className="text-[13px] text-muted">No bills yet.</p>
+          ) : (
+            <div className="flex max-h-[50vh] flex-col gap-2 overflow-auto">
+              {myBills.map((b) => (
+                <button
+                  key={b.id}
+                  className="btn-ghost py-2.5 text-left text-sm"
+                  onClick={async () => {
+                    await actOnTransaction(linkTxn.id, "match", b.id);
+                    setLinkTxn(null);
+                  }}
+                >
+                  <div className="font-bold">{b.occasion}</div>
+                  <div className="text-[11px] text-muted">
+                    {fmtMoney(b.receiptTotal, b.currency)} · {fmtDate(b.billDate)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </Sheet>
       )}
     </div>
   );
@@ -150,11 +272,17 @@ export function InboxScreen() {
 function CaptureModal({
   onSave,
   onClose,
+  title = "Capture receipt",
+  subtitle = "Save now, split later",
+  defaultLabel = "",
 }: {
   onSave: (label: string, imagePath?: string) => Promise<void>;
   onClose: () => void;
+  title?: string;
+  subtitle?: string;
+  defaultLabel?: string;
 }) {
-  const [label, setLabel] = useState("");
+  const [label, setLabel] = useState(defaultLabel);
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -180,7 +308,7 @@ function CaptureModal({
   };
 
   return (
-    <Sheet title="Capture receipt" subtitle="Save now, split later" onClose={onClose}>
+    <Sheet title={title} subtitle={subtitle} onClose={onClose}>
       <input
         ref={cameraRef}
         type="file"
