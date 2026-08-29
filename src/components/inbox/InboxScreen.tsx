@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, ImageIcon } from "lucide-react";
+import { Camera, Check, ImageIcon } from "lucide-react";
 import { Label, Perf } from "@/components/ui/Typography";
-import { Sheet } from "@/components/ui/Sheet";
+import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
 import { useMock } from "@/context/MockStore";
 import { fmtDateTime } from "@/lib/format";
 
@@ -14,13 +14,22 @@ export function InboxScreen() {
   const router = useRouter();
   const unprocessed = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id);
   const [capture, setCapture] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [combineConfirm, setCombineConfirm] = useState(false);
 
   useEffect(() => {
     if (params.get("capture") === "1") setCapture(true);
   }, [params]);
 
+  const selectable = unprocessed.length >= 2;
+  const selectedReceipts = unprocessed.filter((r) => selected.includes(r.id));
+
+  const toggle = (id: string) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   return (
-    <div className="pb-28">
+    <div className={selected.length >= 2 ? "pb-40" : "pb-28"}>
       <div className="px-5 pb-4 pt-7">
         <div className="mb-1 text-[11px] font-bold uppercase tracking-[4px] text-accent">
           SplitTab
@@ -30,6 +39,7 @@ export function InboxScreen() {
         {unprocessed.length > 0 && (
           <div className="mt-1 text-[13px] text-muted">
             {unprocessed.length} receipt{unprocessed.length !== 1 ? "s" : ""} waiting to split
+            {selectable ? " · tap to combine" : ""}
           </div>
         )}
       </div>
@@ -41,38 +51,84 @@ export function InboxScreen() {
             <p className="text-[13px] text-muted">Capture a receipt to process later</p>
           </div>
         ) : (
-          unprocessed.map((r) => (
-            <div key={r.id} className="card">
-              <div className="flex items-center gap-3.5 px-4 py-3.5">
-                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[10px] border border-border bg-card-2 text-accent">
-                  <ImageIcon size={22} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold">{r.label}</div>
-                  <div className="mt-0.5 font-mono text-[11px] text-muted">
-                    {fmtDateTime(r.capturedAt)}
+          unprocessed.map((r) => {
+            const on = selected.includes(r.id);
+            return (
+              <div
+                key={r.id}
+                className="card"
+                style={on ? { borderColor: "rgba(196,69,45,0.45)" } : undefined}
+              >
+                <div className="flex items-center gap-3.5 px-4 py-3.5">
+                  {selectable && (
+                    <button
+                      onClick={() => toggle(r.id)}
+                      aria-label={on ? "Deselect receipt" : "Select receipt"}
+                      aria-pressed={on}
+                      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
+                      style={{
+                        background: on ? "var(--accent)" : "transparent",
+                        border: `1.5px solid ${on ? "var(--accent)" : "rgba(28,25,23,0.2)"}`,
+                        color: "white",
+                      }}
+                    >
+                      {on && <Check size={12} strokeWidth={3} />}
+                    </button>
+                  )}
+                  <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[10px] border border-border bg-card-2 text-accent">
+                    <ImageIcon size={22} />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => (selectable ? toggle(r.id) : undefined)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="truncate text-sm font-bold">{r.label}</div>
+                    <div className="mt-0.5 font-mono text-[11px] text-muted">
+                      {fmtDateTime(r.capturedAt)}
+                    </div>
+                  </button>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-warn">
+                    Pending
+                  </span>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-warn">
-                  Pending
-                </span>
+                <Perf />
+                <div className="p-4">
+                  <button
+                    onClick={() => router.push(`/bills/new?mode=inbox&rx=${r.id}`)}
+                    className="btn-primary py-2.5 text-sm"
+                  >
+                    Process
+                  </button>
+                </div>
               </div>
-              <Perf />
-              <div className="p-4">
-                <button
-                  onClick={() => router.push(`/bills/new?mode=inbox&rx=${r.id}`)}
-                  className="btn-primary py-2.5 text-sm"
-                >
-                  Process
-                </button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
         <button onClick={() => setCapture(true)} className="btn-ghost mt-1">
           Capture new receipt
         </button>
       </div>
+
+      {selected.length >= 2 && (
+        <div className="fixed inset-x-0 bottom-[72px] z-[80] mx-auto w-full max-w-[430px] px-5">
+          <button onClick={() => setCombineConfirm(true)} className="btn-primary shadow-lg">
+            Combine & split ({selected.length})
+          </button>
+        </div>
+      )}
+
+      {combineConfirm && (
+        <ConfirmSheet
+          title="Split as one bill?"
+          body={`Combine ${selectedReceipts.map((r) => r.label).join(" + ")} into one expense. Same people, one split.`}
+          confirmLabel={`Combine ${selected.length} receipts`}
+          onClose={() => setCombineConfirm(false)}
+          onConfirm={() => {
+            router.push(`/bills/new?mode=combine&rx=${selected.join(",")}`);
+          }}
+        />
+      )}
 
       {capture && (
         <CaptureModal

@@ -28,7 +28,7 @@ type MockStore = MockState & {
   setCurrentUser: (id: string) => void;
   setProfile: (name: string, paynow: string) => void;
   addContact: (name: string, paynow?: string) => Contact;
-  saveBill: (bill: Omit<Bill, "debts" | "lockedAt">, inboxId?: string) => void;
+  saveBill: (bill: Omit<Bill, "debts" | "lockedAt">, inboxIds?: string[]) => void;
   settlePair: (from: string, to: string, creatorId: string) => void;
   undoPair: (from: string, to: string, creatorId: string) => void;
   portalPay: (from: string, to: string, billIds: string[]) => void;
@@ -50,6 +50,7 @@ function withDebts(bill: Omit<Bill, "debts" | "lockedAt"> & { lockedAt?: string 
       bill.discount,
       bill.serviceCharge,
       bill.tax,
+      bill.receipts,
     ),
   };
 }
@@ -106,12 +107,13 @@ export function MockProvider({ children }: { children: ReactNode }) {
     [currentUser.id, state.contacts, state.users],
   );
 
-  const saveBill = useCallback((bill: Omit<Bill, "debts" | "lockedAt">, inboxId?: string) => {
+  const saveBill = useCallback((bill: Omit<Bill, "debts" | "lockedAt">, inboxIds?: string[]) => {
+    const idSet = new Set((inboxIds ?? []).filter(Boolean));
     setState((prev) => ({
       ...prev,
       bills: [withDebts(bill), ...prev.bills],
-      inbox: inboxId
-        ? prev.inbox.map((r) => (r.id === inboxId ? { ...r, processed: true } : r))
+      inbox: idSet.size
+        ? prev.inbox.map((r) => (idSet.has(r.id) ? { ...r, processed: true } : r))
         : prev.inbox,
     }));
   }, []);
