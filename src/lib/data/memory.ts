@@ -1,12 +1,13 @@
-import { computeDebts } from "@/lib/debts";
+import { computeDebts, isInternalPairDebt } from "@/lib/debts";
 import { demoSeedEnabled } from "@/lib/config";
-import { matchRosterName } from "@/lib/me";
+import { debtMatchesExpanded, expandPairNames, matchRosterName, pairsForCreator } from "@/lib/me";
 import {
   DEMO_USER_ID,
   SEED_BILLS,
   SEED_CONTACTS,
   SEED_GROUPS,
   SEED_INBOX,
+  SEED_PAIRS,
   USERS,
 } from "@/lib/mock-data";
 import type {
@@ -17,12 +18,14 @@ import type {
   InboxReceipt,
   Member,
   OcrResult,
+  PayeePair,
 } from "@/lib/types";
 
 export type AppSnapshot = {
   users: Member[];
   contacts: Contact[];
   groups: Group[];
+  pairs: PayeePair[];
   bills: Bill[];
   inbox: InboxReceipt[];
   notifications: AppNotification[];
@@ -43,6 +46,7 @@ function emptySnapshot(): AppSnapshot {
     users: [],
     contacts: [],
     groups: [],
+    pairs: [],
     bills: [],
     inbox: [],
     notifications: [],
@@ -50,20 +54,24 @@ function emptySnapshot(): AppSnapshot {
 }
 
 function seedSnapshot(): AppSnapshot {
-  return {
+  const snap: AppSnapshot = {
     users: clone(USERS),
     contacts: clone(SEED_CONTACTS),
     groups: clone(SEED_GROUPS),
+    pairs: clone(SEED_PAIRS),
     bills: clone(SEED_BILLS),
     inbox: clone(SEED_INBOX),
     notifications: [],
   };
+  snap.bills = snap.bills.map((b) => settleInternalPairDebts(b, snap.pairs));
+  return snap;
 }
 
 export function getSnapshot(): AppSnapshot {
   if (!g.__splittab) {
     g.__splittab = demoSeedEnabled() ? seedSnapshot() : emptySnapshot();
   }
+  if (!g.__splittab.pairs) g.__splittab.pairs = [];
   return g.__splittab;
 }
 
@@ -72,8 +80,11 @@ export function resetSnapshot(seed = demoSeedEnabled()) {
   return g.__splittab;
 }
 
-function withDebts(bill: Omit<Bill, "debts" | "lockedAt"> & { lockedAt?: string | null }): Bill {
-  return {
+function withDebts(
+  bill: Omit<Bill, "debts" | "lockedAt"> & { lockedAt?: string | null },
+  pairs: PayeePair[] = [],
+): Bill {
+  const computed: Bill = {
     ...bill,
     lockedAt: bill.lockedAt ?? null,
     debts: computeDebts(
@@ -86,6 +97,20 @@ function withDebts(bill: Omit<Bill, "debts" | "lockedAt"> & { lockedAt?: string 
       bill.receipts,
     ),
   };
+  return settleInternalPairDebts(computed, pairs);
+}
+
+function settleInternalPairDebts(bill: Bill, pairs: PayeePair[]): Bill {
+  const creatorPairs = pairsForCreator(pairs, bill.createdBy);
+  if (!creatorPairs.length) return bill;
+  let changed = false;
+  const debts = bill.debts.map((d) => {
+    if (d.settled) return d;
+    if (!isInternalPairDebt(d.from, d.to, creatorPairs)) return d;
+    changed = true;
+    return { ...d, settled: true };
+  });
+  return changed ? { ...bill, debts } : bill;
 }
 
 export function getUser(id: string) {
@@ -156,6 +181,7 @@ export function clientState(userId: string): ClientState | null {
     users: clone(snap.users),
     contacts: clone(snap.contacts),
     groups: clone(snap.groups),
+    pairs: clone(snap.pairs),
     bills: clone(snap.bills),
     inbox: clone(snap.inbox.filter((r) => r.ownerId === userId)),
     notifications: clone(
@@ -193,6 +219,11 @@ export function setProfile(userId: string, name: string, paynow: string) {
         to: d.to === prev ? user.name : d.to,
       }));
     }
+  });
+  snap.pairs.forEach((p) => {
+    if (!p.memberNames.includes(prev) && p.settler !== prev) return;
+    p.memberNames = p.memberNames.map((n) => (n === prev ? user.name : n)) as [string, string];
+    if (p.settler === prev) p.settler = user.name;
   });
   return clientState(userId);
 }
@@ -242,13 +273,16 @@ export function saveBill(
 ) {
   const snap = getSnapshot();
   upsertRoster(userId, input.names, input.payNowNumber, input.paidBy);
-  const bill = withDebts({
-    ...input,
-    id: input.id || crypto.randomUUID(),
-    createdBy: userId,
-    createdAt: input.createdAt || new Date().toISOString(),
-    lockedAt: null,
-  });
+  const bill = withDebts(
+    {
+      ...input,
+      id: input.id || crypto.randomUUID(),
+      createdBy: userId,
+      createdAt: input.createdAt || new Date().toISOString(),
+      lockedAt: null,
+    },
+    snap.pairs,
+  );
   snap.bills.unshift(bill);
   const idSet = new Set((Array.isArray(inboxIds) ? inboxIds : inboxIds ? [inboxIds] : []).filter(Boolean));
   if (idSet.size) {
@@ -271,13 +305,16 @@ export function updateBill(
   if (existing.createdBy !== userId) throw new Error("Only the tab creator can edit");
   if (existing.lockedAt) throw new Error("Bill is locked");
   upsertRoster(userId, input.names, input.payNowNumber, input.paidBy);
-  const next = withDebts({
-    ...input,
-    id: existing.id,
-    createdBy: existing.createdBy,
-    createdAt: existing.createdAt,
-    lockedAt: null,
-  });
+  const next = withDebts(
+    {
+      ...input,
+      id: existing.id,
+      createdBy: existing.createdBy,
+      createdAt: existing.createdAt,
+      lockedAt: null,
+    },
+    snap.pairs,
+  );
   snap.bills[idx] = next;
   return next;
 }
@@ -290,18 +327,18 @@ export function settlePair(userId: string, from: string, to: string, creatorId: 
   const snap = getSnapshot();
   const user = getUser(userId);
   if (!user) throw new Error("Not signed in");
-  const allowed = user.id === creatorId || user.name === from || user.name === to;
+  const allowed =
+    user.id === creatorId ||
+    expandPairNames(snap.pairs, creatorId, from).includes(user.name) ||
+    expandPairNames(snap.pairs, creatorId, to).includes(user.name);
   if (!allowed) throw new Error("You can only tag a debt you’re on, or your own tab");
   snap.bills.forEach((bill) => {
     if (bill.createdBy !== creatorId) return;
-    const hit = bill.debts.some(
-      (d) => (d.from === from && d.to === to) || (d.from === to && d.to === from),
-    );
+    const hit = bill.debts.some((d) => debtMatchesExpanded(d, from, to, snap.pairs, creatorId));
     if (hit && !bill.lockedAt) bill.lockedAt = new Date().toISOString();
-    bill.debts = bill.debts.map((d) => {
-      const match = (d.from === from && d.to === to) || (d.from === to && d.to === from);
-      return match ? { ...d, settled: true } : d;
-    });
+    bill.debts = bill.debts.map((d) =>
+      debtMatchesExpanded(d, from, to, snap.pairs, creatorId) ? { ...d, settled: true } : d,
+    );
   });
   return clientState(userId);
 }
@@ -309,11 +346,14 @@ export function settlePair(userId: string, from: string, to: string, creatorId: 
 export function undoPair(userId: string, from: string, to: string, creatorId: string) {
   const snap = getSnapshot();
   if (userId !== creatorId) throw new Error("Only the tab creator can undo");
+  const creatorPairs = pairsForCreator(snap.pairs, creatorId);
   snap.bills.forEach((bill) => {
     if (bill.createdBy !== creatorId) return;
     bill.debts = bill.debts.map((d) => {
-      const match = (d.from === from && d.to === to) || (d.from === to && d.to === from);
-      return match ? { ...d, settled: false } : d;
+      if (isInternalPairDebt(d.from, d.to, creatorPairs)) return d;
+      return debtMatchesExpanded(d, from, to, snap.pairs, creatorId)
+        ? { ...d, settled: false }
+        : d;
     });
     if (!bill.debts.some((d) => d.settled)) bill.lockedAt = null;
   });
@@ -329,7 +369,8 @@ export function portalPayload(token: string) {
   const creatorFilter = contact && !user ? contact.creatorId : undefined;
   const bills = snap.bills.filter((b) => {
     if (creatorFilter && b.createdBy !== creatorFilter) return false;
-    return b.names.includes(name);
+    const aliases = expandPairNames(snap.pairs, b.createdBy, name);
+    return aliases.some((n) => b.names.includes(n));
   });
   return {
     token,
@@ -339,6 +380,7 @@ export function portalPayload(token: string) {
     bills,
     users: snap.users,
     contacts: snap.contacts,
+    pairs: snap.pairs,
   };
 }
 
@@ -349,25 +391,38 @@ export function portalPay(token: string, from: string, to: string, billIds: stri
   const idSet = new Set(billIds);
   const amount = snap.bills
     .filter((b) => idSet.has(b.id))
-    .flatMap((b) => b.debts)
-    .filter((d) => d.from === from && d.to === to && !d.settled)
-    .reduce((s, d) => s + d.amount, 0);
+    .flatMap((b) =>
+      b.debts
+        .filter((d) => !d.settled && debtMatchesExpanded(d, from, to, snap.pairs, b.createdBy))
+        .map((d) => d.amount),
+    )
+    .reduce((s, n) => s + n, 0);
   if (amount <= 0) {
     return { amount: 0, alreadySettled: true };
   }
   const now = new Date().toISOString();
   snap.bills.forEach((bill) => {
     if (!idSet.has(bill.id)) return;
-    const hit = bill.debts.some((d) => d.from === from && d.to === to && !d.settled);
+    const hit = bill.debts.some(
+      (d) => !d.settled && debtMatchesExpanded(d, from, to, snap.pairs, bill.createdBy),
+    );
     if (hit && !bill.lockedAt) bill.lockedAt = now;
     bill.debts = bill.debts.map((d) =>
-      d.from === from && d.to === to ? { ...d, settled: true } : d,
+      !d.settled && debtMatchesExpanded(d, from, to, snap.pairs, bill.createdBy)
+        ? { ...d, settled: true }
+        : d,
     );
   });
+  const pair = snap.pairs.find((p) =>
+    snap.bills.some(
+      (b) => idSet.has(b.id) && p.creatorId === b.createdBy && p.memberNames.includes(from),
+    ),
+  );
+  const actor = pair ? pair.memberNames.join(" & ") : from;
   const creditorUser = snap.users.find((u) => u.name === to);
   snap.notifications.unshift({
     id: crypto.randomUUID(),
-    text: `${from} paid ${to} · SGD ${amount.toFixed(2)}`,
+    text: `${actor} paid ${to} · SGD ${amount.toFixed(2)}`,
     createdAt: now,
     read: false,
     forName: to,
@@ -447,6 +502,38 @@ export function addGroupMember(userId: string, groupId: string, name: string, pa
   const group = snap.groups.find((g) => g.id === groupId && g.ownerId === userId);
   if (!group) throw new Error("Group not found");
   return addContact(userId, name, paynow, groupId);
+}
+
+export function combinePayees(userId: string, a: string, b: string, settler: string) {
+  const snap = getSnapshot();
+  const names: [string, string] = [a.trim(), b.trim()];
+  if (!names[0] || !names[1] || names[0] === names[1]) throw new Error("Pick two different people");
+  if (settler !== names[0] && settler !== names[1]) throw new Error("Settler must be one of the pair");
+  const already = snap.pairs.some(
+    (p) =>
+      p.creatorId === userId &&
+      (p.memberNames.includes(names[0]) || p.memberNames.includes(names[1])),
+  );
+  if (already) throw new Error("One of them is already combined");
+  const pair: PayeePair = {
+    id: crypto.randomUUID(),
+    creatorId: userId,
+    memberNames: names,
+    settler,
+  };
+  snap.pairs.push(pair);
+  snap.bills = snap.bills.map((bill) =>
+    bill.createdBy === userId ? settleInternalPairDebts(bill, snap.pairs) : bill,
+  );
+  return clientState(userId);
+}
+
+export function uncombinePayees(userId: string, pairId: string) {
+  const snap = getSnapshot();
+  const pair = snap.pairs.find((p) => p.id === pairId);
+  if (!pair || pair.creatorId !== userId) throw new Error("Pair not found");
+  snap.pairs = snap.pairs.filter((p) => p.id !== pairId);
+  return clientState(userId);
 }
 
 export const DEMO_DEFAULT_USER = DEMO_USER_ID;

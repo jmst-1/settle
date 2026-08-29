@@ -119,3 +119,13 @@ export async function addGroupMember(userId: string, groupId: string, name: stri
   if (mem()) return memory.addGroupMember(userId, groupId, name, paynow);
   return supabaseRepo.addGroupMember(userId, groupId, name, paynow);
 }
+
+export async function combinePayees(userId: string, a: string, b: string, settler: string) {
+  if (mem()) return memory.combinePayees(userId, a, b, settler);
+  return supabaseRepo.combinePayees(userId, a, b, settler);
+}
+
+export async function uncombinePayees(userId: string, pairId: string) {
+  if (mem()) return memory.uncombinePayees(userId, pairId);
+  return supabaseRepo.uncombinePayees(userId, pairId);
+}

@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { computeDebts, personTotals, roundCents, simplifyDebts } from "@/lib/debts";
+import { computeDebts, foldDebtsForPairs, personTotals, roundCents, simplifyDebts } from "@/lib/debts";
+describe("foldDebtsForPairs", () => {
+  it("folds the partner into the settler and sums amounts", () => {
+    const folded = foldDebtsForPairs(
+      [
+        { from: "Bob", to: "Alice", amount: 10, settled: false },
+        { from: "Dana", to: "Alice", amount: 7, settled: false },
+      ],
+      [{ id: "p1", creatorId: "usr_alice", memberNames: ["Bob", "Dana"], settler: "Bob" }],
+    );
+    expect(folded).toEqual([{ from: "Bob", to: "Alice", amount: 17, settled: false }]);
+  });
+
+  it("drops internal debts between the pair", () => {
+    const folded = foldDebtsForPairs(
+      [{ from: "Dana", to: "Bob", amount: 12, settled: false }],
+      [{ id: "p1", creatorId: "usr_alice", memberNames: ["Bob", "Dana"], settler: "Bob" }],
+    );
+    expect(folded).toEqual([]);
+  });
+});
 import type { BillDebt, BillItem } from "@/lib/types";
 
 const names = ["Alice", "Bob", "Con"];

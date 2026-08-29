@@ -16,6 +16,8 @@ type Creditor = {
   creditor: string;
   amount: number;
   paynow: string;
+  settler?: string | null;
+  partner?: string | null;
   bills: {
     id: string;
     occasion: string;
@@ -84,7 +86,17 @@ export function PortalScreen({ token }: { token: string }) {
       <div className="px-5 pb-2 pt-8">
         <div className="mb-6 text-[11px] font-bold uppercase tracking-[4px] text-accent">SplitTab</div>
         <div className="text-[15px] text-dim">Hi, {name}</div>
-        <div className="mt-1 text-[13px] text-muted">You owe</div>
+        <div className="mt-1 text-[13px] text-muted">
+          {creditors.some((c) => c.settler && c.settler !== name)
+            ? `${Array.from(
+                new Set(
+                  creditors
+                    .filter((c) => c.settler && c.settler !== name)
+                    .map((c) => c.settler as string),
+                ),
+              ).join(", ")} settles for you · combined`
+            : "You owe"}
+        </div>
         <div className="mt-1 font-mono text-[40px] font-extrabold tracking-tight leading-none">
           {total.toFixed(2)}
           <span className="ml-1.5 text-sm font-normal text-muted">SGD</span>
@@ -122,6 +134,7 @@ export function PortalScreen({ token }: { token: string }) {
                   <div className="flex-1">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-muted">
                       Pay · {data.creatorLabel ? `${data.creatorLabel}'s tab` : "tab"}
+                      {c.settler && c.partner ? ` · ${c.settler} (for ${c.partner})` : ""}
                     </div>
                     <div className="text-[17px] font-extrabold">{c.creditor}</div>
                   </div>
@@ -215,7 +228,11 @@ export function PortalScreen({ token }: { token: string }) {
       {pending && (
         <ConfirmSheet
           title={`Tell ${pending.creditor} you paid?`}
-          body={`This marks you paid ${pending.creditor} ${fmtMoney(pending.amount)}. SplitTab does not move the money.`}
+          body={`This marks ${
+            pending.settler && pending.partner
+              ? `${pending.settler} & ${pending.partner}`
+              : "you"
+          } paid ${pending.creditor} ${fmtMoney(pending.amount)}. SplitTab does not move the money.`}
           confirmLabel={`I've paid ${pending.creditor}`}
           onClose={() => setConfirm(null)}
           onConfirm={async () => {

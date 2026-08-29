@@ -8,7 +8,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
 import { billSections, personTotals } from "@/lib/debts";
-import { creatorName, tokenForPerson } from "@/lib/me";
+import { creatorName, pairContaining, partnerName, tokenForPerson } from "@/lib/me";
 import { fmtDate, fmtMoney, origin } from "@/lib/format";
 import type { Bill } from "@/lib/types";
 import { useApp } from "@/context/AppStore";
@@ -16,7 +16,7 @@ import { downloadShareCard } from "@/lib/share-card";
 
 export function BillDetailScreen({ bill }: { bill: Bill }) {
   const router = useRouter();
-  const { users, contacts, currentUser } = useApp();
+  const { users, contacts, pairs, currentUser } = useApp();
   const [tab, setTab] = useState<"summary" | "items">("summary");
   const [share, setShare] = useState<string | null>(null);
   const [card, setCard] = useState<string | null>(null);
@@ -66,6 +66,14 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
             const color = nameColor(n, bill.names);
             const isPayer = n === bill.paidBy;
             const token = tokenForPerson(contacts, users, n, bill.createdBy);
+            const pair = pairContaining(pairs, bill.createdBy, n);
+            const other = pair ? partnerName(pair, n) : null;
+            const settleHint =
+              pair && other
+                ? pair.settler === n
+                  ? ` · settles for ${other}`
+                  : ` · settles with ${pair.settler}`
+                : "";
             return (
               <div key={n} className="card">
                 <div
@@ -84,6 +92,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                     </div>
                     <div className="mt-0.5 text-xs text-muted">
                       {t.items.length} item{t.items.length !== 1 ? "s" : ""}
+                      {settleHint}
                     </div>
                   </div>
                   <div className="text-right">

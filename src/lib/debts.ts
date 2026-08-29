@@ -1,4 +1,4 @@
-import type { BillDebt, BillItem, BillReceipt } from "@/lib/types";
+import type { BillDebt, BillItem, BillReceipt, PayeePair } from "@/lib/types";
 
 function itemShare(item: BillItem): string[] {
   return item.split && item.splitWith.length
@@ -154,6 +154,50 @@ export function roundCents(
   return debts.map((d, i) =>
     i === idx ? { ...d, amount: parseFloat((d.amount + diff).toFixed(2)) } : d,
   );
+}
+
+/** Rewrite pair partners to their settler, drop internal debts, sum the rest. */
+export function foldDebtsForPairs<T extends { from: string; to: string; amount: number }>(
+  debts: T[],
+  pairs: PayeePair[],
+): T[] {
+  if (!pairs.length) return debts;
+
+  const alias = new Map<string, string>();
+  for (const pair of pairs) {
+    for (const name of pair.memberNames) {
+      if (name !== pair.settler) alias.set(name, pair.settler);
+    }
+  }
+  const rewrite = (name: string) => alias.get(name) ?? name;
+
+  const summed = new Map<string, T>();
+  for (const debt of debts) {
+    const from = rewrite(debt.from);
+    const to = rewrite(debt.to);
+    if (from === to) continue;
+    const settledKey = "settled" in debt ? String((debt as { settled?: boolean }).settled) : "";
+    const key = `${from}||${to}||${settledKey}`;
+    const existing = summed.get(key);
+    if (existing) {
+      existing.amount = parseFloat((existing.amount + debt.amount).toFixed(2));
+    } else {
+      summed.set(key, { ...debt, from, to, amount: debt.amount });
+    }
+  }
+  return Array.from(summed.values()).filter((d) => Math.abs(d.amount) > 0.005);
+}
+
+export function isInternalPairDebt(
+  from: string,
+  to: string,
+  pairs: PayeePair[],
+) {
+  for (const pair of pairs) {
+    const members = pair.memberNames;
+    if (members.includes(from) && members.includes(to) && from !== to) return true;
+  }
+  return false;
 }
 
 export function simplifyDebts(rawDebts: BillDebt[]) {

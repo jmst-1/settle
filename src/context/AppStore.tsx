@@ -19,12 +19,14 @@ import type {
   Group,
   InboxReceipt,
   Member,
+  PayeePair,
 } from "@/lib/types";
 
 export type AppState = {
   users: Member[];
   contacts: Contact[];
   groups: Group[];
+  pairs: PayeePair[];
   currentUser: Member;
   bills: Bill[];
   inbox: InboxReceipt[];
@@ -51,6 +53,8 @@ type AppStore = AppState & {
   markNotificationRead: () => Promise<void>;
   createGroup: (name: string) => Promise<void>;
   addGroupMember: (groupId: string, name: string, paynow?: string) => Promise<void>;
+  combinePayees: (a: string, b: string, settler: string) => Promise<void>;
+  uncombinePayees: (pairId: string) => Promise<void>;
   claimToken: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   clearToast: () => void;
@@ -74,6 +78,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     users: [],
     contacts: [],
     groups: [],
+    pairs: [],
     currentUser: emptyUser,
     bills: [],
     inbox: [],
@@ -241,6 +246,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [post],
   );
 
+  const combinePayees = useCallback(
+    async (a: string, b: string, settler: string) => {
+      await post("/api/groups", { action: "combine", a, b, settler }, `${a} + ${b} · ${settler} settles`);
+    },
+    [post],
+  );
+
+  const uncombinePayees = useCallback(
+    async (pairId: string) => {
+      await post("/api/groups", { action: "uncombine", pairId });
+    },
+    [post],
+  );
+
   const claimToken = useCallback(
     async (token: string) => {
       await post("/api/auth/claim", { token });
@@ -271,6 +290,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       markNotificationRead,
       createGroup,
       addGroupMember,
+      combinePayees,
+      uncombinePayees,
       claimToken,
       logout,
       clearToast,
@@ -288,6 +309,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       markNotificationRead,
       createGroup,
       addGroupMember,
+      combinePayees,
+      uncombinePayees,
       claimToken,
       logout,
       clearToast,

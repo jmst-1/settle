@@ -3,7 +3,8 @@
  * Maps the normalized SQL schema onto the same app types the UI already uses.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { computeDebts } from "@/lib/debts";
+import { computeDebts, isInternalPairDebt } from "@/lib/debts";
+import { debtMatchesExpanded, expandPairNames, pairsForCreator } from "@/lib/me";
 import type {
   AppNotification,
   Bill,
@@ -13,6 +14,7 @@ import type {
   InboxReceipt,
   Member,
   OcrResult,
+  PayeePair,
 } from "@/lib/types";
 import type { ClientState } from "@/lib/data/memory";
 
@@ -262,13 +264,25 @@ async function loadBills(): Promise<Bill[]> {
   return Promise.all((data ?? []).map((row) => mapBill(row as Record<string, unknown>)));
 }
 
+async function loadPairs(): Promise<PayeePair[]> {
+  const sb = admin();
+  const { data } = await sb.from("payee_pairs").select("*");
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    creatorId: p.owner_id,
+    memberNames: [p.member_a, p.member_b] as [string, string],
+    settler: p.settler,
+  }));
+}
+
 export async function clientState(userId: string): Promise<ClientState | null> {
   const currentUser = await getUser(userId);
   if (!currentUser) return null;
-  const [users, contacts, groups, bills] = await Promise.all([
+  const [users, contacts, groups, pairs, bills] = await Promise.all([
     loadUsers(),
     loadContacts(),
     loadGroups(),
+    loadPairs(),
     loadBills(),
   ]);
   const sb = admin();
@@ -301,16 +315,23 @@ export async function clientState(userId: string): Promise<ClientState | null> {
     recipientUserId: n.recipient_user_id,
   }));
 
-  return { users, contacts, groups, bills, inbox, notifications, currentUser };
+  return { users, contacts, groups, pairs, bills, inbox, notifications, currentUser };
 }
 
 export async function setProfile(userId: string, name: string, paynow: string) {
   const sb = admin();
+  const existing = await getUser(userId);
+  const prev = existing?.name;
   await sb
     .from("user_profiles")
     .update({ display_name: name, default_paynow: paynow, updated_at: new Date().toISOString() })
     .eq("id", userId);
   await sb.from("members").update({ name, paynow }).eq("linked_user_id", userId);
+  if (prev && prev !== name) {
+    await sb.from("payee_pairs").update({ member_a: name }).eq("member_a", prev);
+    await sb.from("payee_pairs").update({ member_b: name }).eq("member_b", prev);
+    await sb.from("payee_pairs").update({ settler: name }).eq("settler", prev);
+  }
   return clientState(userId);
 }
 
@@ -398,6 +419,7 @@ async function persistBill(
     input.tax,
     input.receipts,
   );
+  const creatorPairs = pairsForCreator(await loadPairs(), userId);
 
   const billFields = {
     owner_id: userId,
@@ -482,12 +504,14 @@ async function persistBill(
 
   for (const d of debts) {
     if (!bmIds[d.from] || !bmIds[d.to]) continue;
+    const internal = isInternalPairDebt(d.from, d.to, creatorPairs);
     await sb.from("bill_debts").insert({
       bill_id: billId,
       debtor_bill_member_id: bmIds[d.from],
       creditor_bill_member_id: bmIds[d.to],
       total_amount: d.amount,
-      settled: false,
+      settled: internal,
+      settled_at: internal ? new Date().toISOString() : null,
     });
   }
 
@@ -543,15 +567,17 @@ export async function getBill(billId: string): Promise<Bill | null> {
 export async function settlePair(userId: string, from: string, to: string, creatorId: string) {
   const user = await getUser(userId);
   if (!user) throw new Error("Not signed in");
-  const allowed = user.id === creatorId || user.name === from || user.name === to;
+  const pairs = await loadPairs();
+  const allowed =
+    user.id === creatorId ||
+    expandPairNames(pairs, creatorId, from).includes(user.name) ||
+    expandPairNames(pairs, creatorId, to).includes(user.name);
   if (!allowed) throw new Error("You can only tag a debt you’re on, or your own tab");
   const bills = (await loadBills()).filter((b) => b.createdBy === creatorId);
   const sb = admin();
   const now = new Date().toISOString();
   for (const bill of bills) {
-    const hit = bill.debts.some(
-      (d) => (d.from === from && d.to === to) || (d.from === to && d.to === from),
-    );
+    const hit = bill.debts.some((d) => debtMatchesExpanded(d, from, to, pairs, creatorId));
     if (!hit) continue;
     const { data } = await sb
       .from("bills")
@@ -565,8 +591,7 @@ export async function settlePair(userId: string, from: string, to: string, creat
     for (const d of data?.bill_debts ?? []) {
       const df = names[d.debtor_bill_member_id];
       const dt = names[d.creditor_bill_member_id];
-      const match = (df === from && dt === to) || (df === to && dt === from);
-      if (match) {
+      if (debtMatchesExpanded({ from: df, to: dt }, from, to, pairs, creatorId)) {
         await sb.from("bill_debts").update({ settled: true, settled_at: now }).eq("id", d.id);
       }
     }
@@ -577,6 +602,8 @@ export async function settlePair(userId: string, from: string, to: string, creat
 
 export async function undoPair(userId: string, from: string, to: string, creatorId: string) {
   if (userId !== creatorId) throw new Error("Only the tab creator can undo");
+  const pairs = await loadPairs();
+  const creatorPairs = pairsForCreator(pairs, creatorId);
   const bills = (await loadBills()).filter((b) => b.createdBy === creatorId);
   const sb = admin();
   for (const bill of bills) {
@@ -592,13 +619,16 @@ export async function undoPair(userId: string, from: string, to: string, creator
     for (const d of data?.bill_debts ?? []) {
       const df = names[d.debtor_bill_member_id];
       const dt = names[d.creditor_bill_member_id];
-      const match = (df === from && dt === to) || (df === to && dt === from);
-      if (match) await sb.from("bill_debts").update({ settled: false, settled_at: null }).eq("id", d.id);
+      if (isInternalPairDebt(df, dt, creatorPairs)) continue;
+      if (debtMatchesExpanded({ from: df, to: dt }, from, to, pairs, creatorId)) {
+        await sb.from("bill_debts").update({ settled: false, settled_at: null }).eq("id", d.id);
+      }
     }
     const still = (data?.bill_debts ?? []).some((d) => {
       const df = names[d.debtor_bill_member_id];
       const dt = names[d.creditor_bill_member_id];
-      const match = (df === from && dt === to) || (df === to && dt === from);
+      if (isInternalPairDebt(df, dt, creatorPairs)) return false;
+      const match = debtMatchesExpanded({ from: df, to: dt }, from, to, pairs, creatorId);
       return d.settled && !match;
     });
     if (!still) await sb.from("bills").update({ locked_at: null }).eq("id", bill.id);
@@ -617,6 +647,7 @@ export async function portalPayload(token: string) {
   const contacts = await loadContacts();
   const users = await loadUsers();
   const bills = await loadBills();
+  const pairs = await loadPairs();
   const creatorId = (member.groups as { owner_id: string }).owner_id;
   const name = member.name as string;
   return {
@@ -624,9 +655,14 @@ export async function portalPayload(token: string) {
     name,
     linkedUserId: (member.linked_user_id as string) || null,
     creatorId,
-    bills: bills.filter((b) => b.createdBy === creatorId && b.names.includes(name)),
+    bills: bills.filter((b) => {
+      if (b.createdBy !== creatorId) return false;
+      const aliases = expandPairNames(pairs, b.createdBy, name);
+      return aliases.some((n) => b.names.includes(n));
+    }),
     users,
     contacts,
+    pairs,
   };
 }
 
@@ -634,10 +670,12 @@ export async function portalPay(token: string, from: string, to: string, billIds
   const payload = await portalPayload(token);
   if (!payload || payload.name !== from) throw new Error("Invalid token");
   const idSet = new Set(billIds);
+  const pairs = payload.pairs;
   const amount = payload.bills
     .filter((b) => idSet.has(b.id))
-    .flatMap((b) => b.debts)
-    .filter((d) => d.from === from && d.to === to && !d.settled)
+    .flatMap((b) =>
+      b.debts.filter((d) => !d.settled && debtMatchesExpanded(d, from, to, pairs, b.createdBy)),
+    )
     .reduce((s, d) => s + d.amount, 0);
   if (amount <= 0) return { amount: 0, alreadySettled: true };
 
@@ -655,7 +693,16 @@ export async function portalPay(token: string, from: string, to: string, billIds
     });
     const covered: string[] = [];
     for (const d of data?.bill_debts ?? []) {
-      if (names[d.debtor_bill_member_id] === from && names[d.creditor_bill_member_id] === to && !d.settled) {
+      if (
+        !d.settled &&
+        debtMatchesExpanded(
+          { from: names[d.debtor_bill_member_id], to: names[d.creditor_bill_member_id] },
+          from,
+          to,
+          pairs,
+          bill.createdBy,
+        )
+      ) {
         await sb.from("bill_debts").update({ settled: true, settled_at: now }).eq("id", d.id);
         covered.push(d.id);
       }
@@ -664,11 +711,17 @@ export async function portalPay(token: string, from: string, to: string, billIds
       await sb.from("bills").update({ locked_at: bill.lockedAt || now }).eq("id", bill.id);
     }
   }
+  const pair = pairs.find((p) =>
+    payload.bills.some(
+      (b) => idSet.has(b.id) && p.creatorId === b.createdBy && p.memberNames.includes(from),
+    ),
+  );
+  const actor = pair ? pair.memberNames.join(" & ") : from;
   const creditor = payload.users.find((u) => u.name === to);
   await sb.from("notifications").insert({
     recipient_user_id: creditor?.id ?? null,
     type: "paid",
-    payload: { text: `${from} paid ${to} · SGD ${amount.toFixed(2)}` },
+    payload: { text: `${actor} paid ${to} · SGD ${amount.toFixed(2)}` },
     channel: "in_app",
   });
   return { amount, alreadySettled: false };
@@ -772,6 +825,66 @@ export async function addGroupMember(userId: string, groupId: string, name: stri
     .maybeSingle();
   if (!group) throw new Error("Group not found");
   return addContact(userId, name, paynow, groupId);
+}
+
+export async function combinePayees(userId: string, a: string, b: string, settler: string) {
+  const sb = admin();
+  const names: [string, string] = [a.trim(), b.trim()];
+  if (!names[0] || !names[1] || names[0] === names[1]) throw new Error("Pick two different people");
+  if (settler !== names[0] && settler !== names[1]) throw new Error("Settler must be one of the pair");
+  const existing = await loadPairs();
+  const already = existing.some(
+    (p) =>
+      p.creatorId === userId &&
+      (p.memberNames.includes(names[0]) || p.memberNames.includes(names[1])),
+  );
+  if (already) throw new Error("One of them is already combined");
+  const { error } = await sb.from("payee_pairs").insert({
+    owner_id: userId,
+    member_a: names[0],
+    member_b: names[1],
+    settler,
+  });
+  if (error) throw new Error(error.message || "Could not combine");
+
+  const pairs = await loadPairs();
+  const creatorPairs = pairsForCreator(pairs, userId);
+  const bills = (await loadBills()).filter((b) => b.createdBy === userId);
+  const now = new Date().toISOString();
+  for (const bill of bills) {
+    const { data } = await sb
+      .from("bills")
+      .select("bill_members(id, name), bill_debts(id, debtor_bill_member_id, creditor_bill_member_id, settled)")
+      .eq("id", bill.id)
+      .single();
+    const memberNames: Record<string, string> = {};
+    (data?.bill_members ?? []).forEach((m: { id: string; name: string }) => {
+      memberNames[m.id] = m.name;
+    });
+    for (const d of data?.bill_debts ?? []) {
+      if (d.settled) continue;
+      const df = memberNames[d.debtor_bill_member_id];
+      const dt = memberNames[d.creditor_bill_member_id];
+      if (isInternalPairDebt(df, dt, creatorPairs)) {
+        await sb.from("bill_debts").update({ settled: true, settled_at: now }).eq("id", d.id);
+      }
+    }
+  }
+  return clientState(userId);
+}
+
+export async function uncombinePayees(userId: string, pairId: string) {
+  const sb = admin();
+  const { data, error } = await sb
+    .from("payee_pairs")
+    .delete()
+    .eq("id", pairId)
+    .eq("owner_id", userId)
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message || "Could not uncombine");
+  if (!data) throw new Error("Pair not found");
+  return clientState(userId);
 }
 
 export { paynowType };

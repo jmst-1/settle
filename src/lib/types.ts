@@ -82,6 +82,14 @@ export type Contact = {
   linkedUserId?: string;
 };
 
+/** Two roster people who tag items separately but settle as one wallet. Creator-scoped. */
+export type PayeePair = {
+  id: string;
+  creatorId: string;
+  memberNames: [string, string];
+  settler: string;
+};
+
 export type AppNotification = {
   id: string;
   text: string;
