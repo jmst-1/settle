@@ -30,6 +30,45 @@ describe("computeDebts", () => {
     const debts = computeDebts(items([["Tea", 5, "Alice"]]), ["Alice"], "Alice", 0, 0, 0);
     expect(debts).toEqual([]);
   });
+
+  it("allocates GST per slip when combining receipts", () => {
+    const foodId = "r-food";
+    const drinkId = "r-drink";
+    const billItems: BillItem[] = [
+      { name: "Burger", price: 30, assignee: "Alice", split: false, splitWith: [], receiptId: foodId },
+      { name: "Martini", price: 20, assignee: "Bob", split: false, splitWith: [], receiptId: drinkId },
+    ];
+    const debts = computeDebts(
+      billItems,
+      ["Alice", "Bob"],
+      "Alice",
+      0,
+      0,
+      0,
+      [
+        {
+          id: foodId,
+          label: "Food",
+          billDate: "2026-06-14",
+          discount: 0,
+          serviceCharge: 0,
+          tax: 3,
+          receiptTotal: 33,
+        },
+        {
+          id: drinkId,
+          label: "Drinks",
+          billDate: "2026-06-14",
+          discount: 0,
+          serviceCharge: 0,
+          tax: 2,
+          receiptTotal: 22,
+        },
+      ],
+    );
+    const bob = debts.find((d) => d.from === "Bob");
+    expect(bob?.amount).toBeCloseTo(22, 2);
+  });
 });
 
 describe("roundCents", () => {

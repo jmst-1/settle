@@ -2,15 +2,87 @@
 
 import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, ImageIcon, ListFilter, Pencil } from "lucide-react";
+import { Camera, ImageIcon, ListFilter, Pencil, Plus } from "lucide-react";
 import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
-import { ConfirmSheet } from "@/components/ui/Sheet";
+import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
 import { useApp } from "@/context/AppStore";
 import { expandOcr } from "@/lib/ocr";
 import { matchRosterName, rosterFor } from "@/lib/me";
-import type { Bill, BillItem, OcrResult } from "@/lib/types";
+import type { Bill, BillItem, BillReceipt, InboxReceipt, OcrResult } from "@/lib/types";
+
+type DraftReceipt = BillReceipt & { inboxId?: string };
+type Step = "upload" | "review" | "people" | "assign";
+
+function newId() {
+  return crypto.randomUUID();
+}
+
+function emptyItem(receiptId: string): BillItem {
+  return { name: "", price: 0, assignee: null, split: false, splitWith: [], receiptId };
+}
+
+function draftFromOcr(
+  ocr: OcrResult,
+  label: string,
+  inboxId?: string,
+): { receipt: DraftReceipt; items: BillItem[] } {
+  const id = newId();
+  return {
+    receipt: {
+      id,
+      label: label || ocr.occasion || "Receipt",
+      billDate: ocr.bill_date || new Date().toISOString().slice(0, 10),
+      discount: ocr.discount || 0,
+      serviceCharge: ocr.serviceCharge || 0,
+      tax: ocr.tax || 0,
+      receiptTotal: ocr.total || 0,
+      inboxId,
+    },
+    items: expandOcr(ocr, id),
+  };
+}
+
+function blankDraft(): { receipt: DraftReceipt; items: BillItem[] } {
+  const id = newId();
+  return {
+    receipt: {
+      id,
+      label: "Receipt",
+      billDate: new Date().toISOString().slice(0, 10),
+      discount: 0,
+      serviceCharge: 0,
+      tax: 0,
+      receiptTotal: 0,
+    },
+    items: [emptyItem(id)],
+  };
+}
+
+function draftsFromBill(bill: Bill): { receipt: DraftReceipt; items: BillItem[] }[] {
+  if (bill.receipts && bill.receipts.length > 0) {
+    return bill.receipts.map((receipt) => ({
+      receipt,
+      items: bill.items.filter((it) => it.receiptId === receipt.id),
+    }));
+  }
+  const id = bill.id;
+  return [
+    {
+      receipt: {
+        id,
+        label: bill.occasion,
+        billDate: bill.billDate,
+        discount: bill.discount,
+        serviceCharge: bill.serviceCharge,
+        tax: bill.tax,
+        receiptTotal: bill.receiptTotal,
+      },
+      items: bill.items.map((it) => ({ ...it, receiptId: it.receiptId || id })),
+    },
+  ];
+}
 
 function samePeople(a: string[], b: string[]) {
   if (a.length !== b.length) return false;
@@ -25,74 +97,106 @@ function isEqualSplit(items: BillItem[], names: string[]) {
   );
 }
 
-type Step = "upload" | "review" | "people" | "assign";
+function loadInboxDrafts(sources: InboxReceipt[]) {
+  return sources.map((rx) => {
+    if (rx.ocr) return draftFromOcr(rx.ocr, rx.label || rx.ocr.occasion, rx.id);
+    const blank = blankDraft();
+    blank.receipt.inboxId = rx.id;
+    blank.receipt.label = rx.label || blank.receipt.label;
+    return blank;
+  });
+}
 
 export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const router = useRouter();
   const params = useSearchParams();
   const { saveBill, updateBill, currentUser, contacts, addContact, inbox } = useApp();
   const mode = params.get("mode") || "scan";
-  const rxId = params.get("rx");
-  const rx = inbox.find((r) => r.id === rxId);
-  const preload = editBill
-    ? null
-    : rx?.ocr ?? null;
+  const rxIds = (params.get("rx") || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const sourceReceipts = rxIds
+    .map((id) => inbox.find((r) => r.id === id))
+    .filter((r): r is InboxReceipt => Boolean(r));
+
+  const initialDrafts = editBill
+    ? draftsFromBill(editBill)
+    : sourceReceipts.length > 0
+      ? loadInboxDrafts(sourceReceipts)
+      : mode === "manual"
+        ? [blankDraft()]
+        : [];
+
+  const labels = sourceReceipts.map((r) => r.label).filter(Boolean);
+  const sameLabel = labels.length > 0 && labels.every((l) => l === labels[0]);
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
+  const addCameraRef = useRef<HTMLInputElement>(null);
+  const addLibraryRef = useRef<HTMLInputElement>(null);
   const [ocrError, setOcrError] = useState("");
 
   const [step, setStep] = useState<Step>(
-    editBill || preload ? "review" : mode === "manual" ? "review" : "upload",
+    initialDrafts.length || editBill ? "review" : mode === "manual" ? "review" : "upload",
   );
   const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState(!!preload || !!editBill);
+  const [scanned, setScanned] = useState(sourceReceipts.length > 0 || Boolean(editBill));
   const [occasion, setOccasion] = useState(
-    editBill?.occasion || (preload ? rx?.label || preload.occasion : ""),
+    editBill?.occasion ||
+      (sameLabel ? labels[0] : sourceReceipts[0]?.label || sourceReceipts[0]?.ocr?.occasion || ""),
   );
-  const [billDate, setBillDate] = useState(
-    editBill?.billDate || preload?.bill_date || new Date().toISOString().slice(0, 10),
-  );
-  const [items, setItems] = useState<BillItem[]>(
-    editBill?.items?.length
-      ? editBill.items
-      : preload
-        ? expandOcr(preload)
-        : [{ name: "", price: 0, assignee: null, split: false, splitWith: [] }],
-  );
-  const [discount, setDiscount] = useState(editBill?.discount ?? (parseFloat(String(preload?.discount)) || 0));
-  const [sc, setSc] = useState(editBill?.serviceCharge ?? (parseFloat(String(preload?.serviceCharge)) || 0));
-  const [tax, setTax] = useState(editBill?.tax ?? (parseFloat(String(preload?.tax)) || 0));
-  const [receiptTotal, setReceiptTotal] = useState(
-    editBill?.receiptTotal ?? (parseFloat(String(preload?.total)) || 0),
-  );
+  const [billDate, setBillDate] = useState(() => {
+    if (editBill?.billDate) return editBill.billDate;
+    const dates = initialDrafts.map((d) => d.receipt.billDate).filter(Boolean).sort();
+    return dates[0] || new Date().toISOString().slice(0, 10);
+  });
+  const [receipts, setReceipts] = useState<DraftReceipt[]>(initialDrafts.map((d) => d.receipt));
+  const [items, setItems] = useState<BillItem[]>(initialDrafts.flatMap((d) => d.items));
   const [names, setNames] = useState<string[]>(editBill?.names ?? [currentUser.name]);
   const [newName, setNewName] = useState("");
   const [paidBy, setPaidBy] = useState(editBill?.paidBy || currentUser.name);
   const [payNow, setPayNow] = useState(editBill?.payNowNumber || currentUser.paynow);
   const [equalConfirm, setEqualConfirm] = useState(false);
   const [splitPicker, setSplitPicker] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const roster = rosterFor(contacts, currentUser.id);
   const recent = roster.map((c) => c.name);
   const itemSubtotal = items.reduce((s, it) => s + it.price, 0);
-  const derivedTotal = itemSubtotal - discount + sc + tax;
+  const discount = receipts.reduce((s, r) => s + r.discount, 0);
+  const sc = receipts.reduce((s, r) => s + r.serviceCharge, 0);
+  const tax = receipts.reduce((s, r) => s + r.tax, 0);
+  const receiptTotal = receipts.reduce((s, r) => s + r.receiptTotal, 0);
+  const sectionDerived = (r: DraftReceipt) => {
+    const sub = items.filter((it) => it.receiptId === r.id).reduce((s, it) => s + it.price, 0);
+    return sub - r.discount + r.serviceCharge + r.tax;
+  };
+  const derivedTotal = receipts.length
+    ? receipts.reduce((s, r) => s + sectionDerived(r), 0)
+    : itemSubtotal;
   const diff = receiptTotal > 0 ? Math.abs(receiptTotal - derivedTotal) : 0;
-  const allAssigned = items.length > 0 && items.every((it) => (it.split && it.splitWith.length) || it.assignee);
+  const allAssigned =
+    items.length > 0 && items.every((it) => (it.split && it.splitWith.length) || it.assignee);
   const perHead = names.length ? derivedTotal / names.length : 0;
+  const fromInbox = sourceReceipts.length > 0;
+  const combined = receipts.length > 1;
 
-  const applyOcr = (ocr: OcrResult) => {
-    setOccasion(ocr.occasion || "");
-    setBillDate(ocr.bill_date || new Date().toISOString().slice(0, 10));
-    setItems(expandOcr(ocr));
-    setDiscount(ocr.discount || 0);
-    setSc(ocr.serviceCharge || 0);
-    setTax(ocr.tax || 0);
-    setReceiptTotal(ocr.total || 0);
-    setScanned(true);
-    setStep("review");
+  const patchReceipt = (id: string, patch: Partial<DraftReceipt>) => {
+    setReceipts((p) => p.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
 
-  const handleFile = async (file: File | undefined) => {
+  const appendDraft = (draft: { receipt: DraftReceipt; items: BillItem[] }) => {
+    setReceipts((p) => [...p, draft.receipt]);
+    setItems((p) => [...p, ...draft.items]);
+    setScanned(true);
+    setStep("review");
+    if (!occasion) setOccasion(draft.receipt.label);
+    if (draft.receipt.billDate && (!billDate || draft.receipt.billDate < billDate)) {
+      setBillDate(draft.receipt.billDate);
+    }
+  };
+
+  const handleFile = async (file: File | undefined, append = false) => {
     if (!file) return;
     setScanning(true);
     setOcrError("");
@@ -109,7 +213,18 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
       });
       const ocrData = await ocrRes.json();
       if (!ocrRes.ok) throw new Error(ocrData.error || "Could not read receipt");
-      applyOcr(ocrData.ocr as OcrResult);
+      const ocr = ocrData.ocr as OcrResult;
+      const draft = draftFromOcr(ocr, ocr.occasion);
+      if (append) appendDraft(draft);
+      else {
+        setReceipts([draft.receipt]);
+        setItems(draft.items);
+        setOccasion(ocr.occasion || "");
+        setBillDate(draft.receipt.billDate);
+        setScanned(true);
+        setStep("review");
+      }
+      setAdding(false);
     } catch (e) {
       setOcrError((e as Error).message);
     } finally {
@@ -130,9 +245,21 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
       receiptTotal: receiptTotal || derivedTotal,
       paidBy,
       payNowNumber: payNow,
+      receipts: receipts.map(
+        ({ id, label, billDate: date, discount: d, serviceCharge, tax: gst, receiptTotal: total }) => ({
+          id,
+          label,
+          billDate: date,
+          discount: d,
+          serviceCharge,
+          tax: gst,
+          receiptTotal: total,
+        }),
+      ),
     };
+    const inboxIds = receipts.map((r) => r.inboxId).filter((id): id is string => Boolean(id));
     if (editBill) await updateBill(editBill.id, payload);
-    else await saveBill(payload, rxId || undefined);
+    else await saveBill(payload, inboxIds);
     router.push(editBill ? `/bills/${editBill.id}` : "/");
   };
 
@@ -168,7 +295,11 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
 
       {step === "upload" && (
         <>
-          <SectionHeader title={editBill ? "Edit bill" : "New bill"} subtitle="Scan or enter manually" onBack={() => router.push(editBill ? `/bills/${editBill.id}` : "/")} />
+          <SectionHeader
+            title={editBill ? "Edit bill" : "New bill"}
+            subtitle="Scan or enter manually"
+            onBack={() => router.push(editBill ? `/bills/${editBill.id}` : "/")}
+          />
           <div className="flex flex-col gap-3.5 px-5">
             <input
               ref={cameraRef}
@@ -176,14 +307,14 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={(e) => void handleFile(e.target.files?.[0])}
+              onChange={(e) => void handleFile(e.target.files?.[0], false)}
             />
             <input
               ref={libraryRef}
               type="file"
               accept="image/*,.heic,.heif"
               className="hidden"
-              onChange={(e) => void handleFile(e.target.files?.[0])}
+              onChange={(e) => void handleFile(e.target.files?.[0], false)}
             />
             <button
               onClick={!scanning ? () => cameraRef.current?.click() : undefined}
@@ -204,7 +335,17 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
             <button onClick={() => libraryRef.current?.click()} className="btn-ghost flex items-center justify-center gap-2">
               <ImageIcon size={16} /> Photo library
             </button>
-            <button onClick={() => setStep("review")} className="btn-ghost flex items-center justify-center gap-2">
+            <button
+              onClick={() => {
+                if (!receipts.length) {
+                  const draft = blankDraft();
+                  setReceipts([draft.receipt]);
+                  setItems(draft.items);
+                }
+                setStep("review");
+              }}
+              className="btn-ghost flex items-center justify-center gap-2"
+            >
               <Pencil size={16} /> Enter manually
             </button>
             {ocrError && (
@@ -219,9 +360,21 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
       {step === "review" && (
         <>
           <SectionHeader
-            title="Review receipt"
-            subtitle={scanned ? "OCR complete — edit anything that's off" : "Enter your items"}
-            onBack={() => (editBill ? router.push(`/bills/${editBill.id}`) : preload ? router.push("/inbox") : setStep("upload"))}
+            title={combined ? "Review receipts" : "Review receipt"}
+            subtitle={
+              combined
+                ? `${receipts.length} slips — one bill when you save`
+                : scanned
+                  ? "OCR complete — edit anything that's off"
+                  : "Enter your items"
+            }
+            onBack={() =>
+              editBill
+                ? router.push(`/bills/${editBill.id}`)
+                : fromInbox
+                  ? router.push("/inbox")
+                  : setStep("upload")
+            }
           />
           <div className="flex flex-col gap-3.5 px-5">
             <div className="card">
@@ -235,85 +388,144 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
                 <input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} className="field mt-2" />
               </div>
             </div>
-            <div className="card">
-              <div className="px-4 pb-1.5 pt-3.5">
-                <Label>Items</Label>
-              </div>
-              {items.map((it, i) => (
-                <div key={i}>
+
+            {receipts.map((receipt, ri) => {
+              const sectionItems = items
+                .map((it, i) => ({ it, i }))
+                .filter(({ it }) => it.receiptId === receipt.id);
+              const derived = sectionDerived(receipt);
+              const sectionDiff =
+                receipt.receiptTotal > 0 ? Math.abs(receipt.receiptTotal - derived) : 0;
+              return (
+                <div key={receipt.id} className="card">
+                  <div className="flex items-start gap-2 px-4 pb-1.5 pt-3.5">
+                    <div className="min-w-0 flex-1">
+                      <Label>{combined || receipts.length > 1 ? `Receipt ${ri + 1}` : "Items"}</Label>
+                      {(combined || receipts.length > 1) && (
+                        <input
+                          value={receipt.label}
+                          onChange={(e) => patchReceipt(receipt.id, { label: e.target.value })}
+                          placeholder="Slip name"
+                          className="mt-2 w-full border-none bg-transparent text-sm font-bold outline-none"
+                        />
+                      )}
+                    </div>
+                    {receipts.length > 1 && (
+                      <button
+                        onClick={() => {
+                          setReceipts((p) => p.filter((r) => r.id !== receipt.id));
+                          setItems((p) => p.filter((it) => it.receiptId !== receipt.id));
+                        }}
+                        className="text-[13px] font-bold text-muted"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {(combined || receipts.length > 1) && (
+                    <div className="px-4 pb-2">
+                      <input
+                        type="date"
+                        value={receipt.billDate}
+                        onChange={(e) => patchReceipt(receipt.id, { billDate: e.target.value })}
+                        className="field"
+                      />
+                    </div>
+                  )}
+                  {sectionItems.map(({ it, i }) => (
+                    <div key={i}>
+                      <Perf />
+                      <div className="flex items-center gap-2 px-4 py-3">
+                        <input
+                          value={it.name}
+                          onChange={(e) =>
+                            setItems((p) => p.map((x, idx) => (idx === i ? { ...x, name: e.target.value } : x)))
+                          }
+                          placeholder="Item name"
+                          className="min-w-0 flex-1 border-none bg-transparent text-sm font-semibold outline-none"
+                        />
+                        <input
+                          value={it.price || ""}
+                          onChange={(e) =>
+                            setItems((p) =>
+                              p.map((x, idx) => (idx === i ? { ...x, price: parseFloat(e.target.value) || 0 } : x)),
+                            )
+                          }
+                          placeholder="0.00"
+                          type="number"
+                          step="0.01"
+                          className="w-[72px] border-none bg-transparent text-right font-mono text-[13px] font-bold text-accent outline-none"
+                        />
+                        <button
+                          onClick={() => setItems((p) => p.filter((_, idx) => idx !== i))}
+                          className="text-lg text-muted"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                   <Perf />
-                  <div className="flex items-center gap-2 px-4 py-3">
-                    <input
-                      value={it.name}
-                      onChange={(e) => setItems((p) => p.map((x, idx) => (idx === i ? { ...x, name: e.target.value } : x)))}
-                      placeholder="Item name"
-                      className="min-w-0 flex-1 border-none bg-transparent text-sm font-semibold outline-none"
-                    />
-                    <input
-                      value={it.price || ""}
-                      onChange={(e) =>
-                        setItems((p) => p.map((x, idx) => (idx === i ? { ...x, price: parseFloat(e.target.value) || 0 } : x)))
-                      }
-                      placeholder="0.00"
-                      type="number"
-                      step="0.01"
-                      className="w-[72px] border-none bg-transparent text-right font-mono text-[13px] font-bold text-accent outline-none"
-                    />
+                  <div className="p-4">
                     <button
-                      onClick={() => setItems((p) => p.filter((_, idx) => idx !== i))}
-                      className="text-lg text-muted"
+                      onClick={() => setItems((p) => [...p, emptyItem(receipt.id)])}
+                      className="text-[13px] font-bold text-accent"
                     >
-                      ×
+                      + Add item
                     </button>
                   </div>
-                </div>
-              ))}
-              <Perf />
-              <div className="p-4">
-                <button
-                  onClick={() => setItems((p) => [...p, { name: "", price: 0, assignee: null, split: false, splitWith: [] }])}
-                  className="text-[13px] font-bold text-accent"
-                >
-                  + Add item
-                </button>
-              </div>
-            </div>
-            <div className="card">
-              {[
-                ["Bill discount", discount, setDiscount, "var(--ok)", true],
-                ["Service charge", sc, setSc, "var(--dim)", false],
-                ["GST", tax, setTax, "var(--dim)", false],
-              ].map(([lbl, val, setter, clr, neg]) => (
-                <div key={String(lbl)}>
-                  <div className="flex items-center gap-2 px-4 py-3">
-                    <span className="flex-1 text-[13px]" style={{ color: String(clr) }}>
-                      {String(lbl)}
-                    </span>
-                    {Boolean(neg) && <span style={{ color: String(clr) }}>−</span>}
-                    <input
-                      value={(val as number) || ""}
-                      onChange={(e) => (setter as (n: number) => void)(parseFloat(e.target.value) || 0)}
-                      type="number"
-                      step="0.01"
-                      className="w-[72px] border-none bg-transparent text-right font-mono text-[13px] font-bold outline-none"
-                      style={{ color: String(clr) }}
-                    />
-                  </div>
                   <Perf />
-                </div>
-              ))}
-              <div className="flex items-center justify-between px-4 py-3.5">
-                <span className="text-sm font-bold">Total</span>
-                <Amt value={derivedTotal} color="var(--accent)" size={16} />
-              </div>
-              {diff > 0.01 && (
-                <div className="px-4 pb-3.5">
-                  <div className="rounded-[10px] border border-warn/20 bg-warn/10 px-3 py-2 text-xs text-warn">
-                    Receipt total was {receiptTotal.toFixed(2)} — differs by {diff.toFixed(2)}
+                  {[
+                    ["Bill discount", receipt.discount, "discount", "var(--ok)", true],
+                    ["Service charge", receipt.serviceCharge, "serviceCharge", "var(--dim)", false],
+                    ["GST", receipt.tax, "tax", "var(--dim)", false],
+                  ].map(([lbl, val, key, clr, neg]) => (
+                    <div key={String(key)}>
+                      <div className="flex items-center gap-2 px-4 py-3">
+                        <span className="flex-1 text-[13px]" style={{ color: String(clr) }}>
+                          {String(lbl)}
+                        </span>
+                        {Boolean(neg) && <span style={{ color: String(clr) }}>−</span>}
+                        <input
+                          value={(val as number) || ""}
+                          onChange={(e) =>
+                            patchReceipt(receipt.id, {
+                              [key as "discount" | "serviceCharge" | "tax"]: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          type="number"
+                          step="0.01"
+                          className="w-[72px] border-none bg-transparent text-right font-mono text-[13px] font-bold outline-none"
+                          style={{ color: String(clr) }}
+                        />
+                      </div>
+                      <Perf />
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between px-4 py-3.5">
+                    <span className="text-sm font-bold">{receipts.length > 1 ? "Slip total" : "Total"}</span>
+                    <Amt value={derived} color="var(--accent)" size={16} />
                   </div>
+                  {sectionDiff > 0.01 && (
+                    <div className="px-4 pb-3.5">
+                      <div className="rounded-[10px] border border-warn/20 bg-warn/10 px-3 py-2 text-xs text-warn">
+                        Receipt total was {receipt.receiptTotal.toFixed(2)} — differs by {sectionDiff.toFixed(2)}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })}
+
+            {combined && diff > 0.01 && (
+              <div className="rounded-[10px] border border-warn/20 bg-warn/10 px-3 py-2 text-xs text-warn">
+                Combined total {derivedTotal.toFixed(2)} vs receipts {receiptTotal.toFixed(2)} — differs by {diff.toFixed(2)}
+              </div>
+            )}
+
+            <button onClick={() => setAdding(true)} className="btn-ghost flex items-center justify-center gap-2">
+              <Plus size={16} /> Add another receipt
+            </button>
             <button onClick={() => setStep("people")} className="btn-primary">
               Continue
             </button>
@@ -325,7 +537,7 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
         <>
           <SectionHeader
             title="Who's splitting?"
-            subtitle={`${items.length} items · SGD ${derivedTotal.toFixed(2)}`}
+            subtitle={`${items.length} items · SGD ${derivedTotal.toFixed(2)}${combined ? ` · ${receipts.length} receipts` : ""}`}
             onBack={() => setStep("review")}
           />
           <div className="flex flex-col gap-3.5 px-5">
@@ -482,69 +694,80 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
         <>
           <SectionHeader title="Assign items" subtitle="Who had what?" onBack={() => setStep("people")} />
           <div className="flex flex-col gap-3.5 px-5">
-            <div className="card">
-              {items.map((it, i) => (
-                <div key={i}>
-                  {i > 0 && <Perf />}
-                  <div className="p-4">
-                    <div className="mb-2 flex justify-between">
-                      <span className="pr-2 text-[13px] font-bold">
-                        {it.split && <span className="mr-1 text-accent">⇌</span>}
-                        {it.name}
-                      </span>
-                      <Amt value={it.price} color="var(--accent)" />
+            {receipts.map((receipt) => {
+              const indexed = items
+                .map((it, i) => ({ it, i }))
+                .filter(({ it }) => it.receiptId === receipt.id);
+              if (!indexed.length) return null;
+              return (
+                <div key={receipt.id} className="card">
+                  {receipts.length > 1 && (
+                    <div className="px-4 pb-1 pt-3.5 text-[11px] font-bold uppercase tracking-wider text-muted">
+                      {receipt.label}
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        {names.map((n) => {
-                          const selected = it.split ? it.splitWith.includes(n) : it.assignee === n;
-                          return (
+                  )}
+                  {indexed.map(({ it, i }, row) => (
+                    <div key={i}>
+                      {(row > 0 || receipts.length > 1) && <Perf />}
+                      <div className="p-4">
+                        <div className="mb-2 flex justify-between">
+                          <span className="pr-2 text-[13px] font-bold">
+                            {it.split && <span className="mr-1 text-accent">⇌</span>}
+                            {it.name}
+                          </span>
+                          <Amt value={it.price} color="var(--accent)" />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {names.map((n) => {
+                            const selected = it.split ? it.splitWith.includes(n) : it.assignee === n;
+                            return (
+                              <button
+                                key={n}
+                                onClick={() =>
+                                  setItems((p) =>
+                                    p.map((x, idx) =>
+                                      idx === i
+                                        ? {
+                                            ...x,
+                                            assignee: x.assignee === n && !x.split ? null : n,
+                                            split: false,
+                                            splitWith: [],
+                                          }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                                className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-bold"
+                                style={{
+                                  background: selected ? `${nameColor(n, names)}28` : "rgba(28,25,23,0.04)",
+                                  border: `1px solid ${selected ? nameColor(n, names) + "55" : "rgba(28,25,23,0.08)"}`,
+                                  color: selected ? nameColor(n, names) : "var(--dim)",
+                                }}
+                              >
+                                {n}
+                              </button>
+                            );
+                          })}
+                          {names.length >= 2 && (
                             <button
-                              key={n}
-                              onClick={() =>
-                                setItems((p) =>
-                                  p.map((x, idx) =>
-                                    idx === i
-                                      ? {
-                                          ...x,
-                                          assignee: x.assignee === n && !x.split ? null : n,
-                                          split: false,
-                                          splitWith: [],
-                                        }
-                                      : x,
-                                  ),
-                                )
-                              }
-                              className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-bold"
-                              style={{
-                                background: selected ? `${nameColor(n, names)}28` : "rgba(28,25,23,0.04)",
-                                border: `1px solid ${selected ? nameColor(n, names) + "55" : "rgba(28,25,23,0.08)"}`,
-                                color: selected ? nameColor(n, names) : "var(--dim)",
-                              }}
+                              onClick={() => setSplitPicker(i)}
+                              className={`rounded-full px-2.5 py-1.5 text-xs font-bold ${
+                                it.split
+                                  ? "border border-accent/30 bg-accent/10 text-accent"
+                                  : "border border-border bg-black/[0.04] text-dim"
+                              }`}
                             >
-                              {n}
+                              ⇌ Split
+                              {it.split && it.splitWith.length ? ` ÷${it.splitWith.length}` : ""}
                             </button>
-                          );
-                        })}
-                        {names.length >= 2 && (
-                          <button
-                            onClick={() => setSplitPicker(i)}
-                            className={`rounded-full px-2.5 py-1.5 text-xs font-bold ${
-                              it.split
-                                ? "border border-accent/30 bg-accent/10 text-accent"
-                                : "border border-border bg-black/[0.04] text-dim"
-                            }`}
-                          >
-                            ⇌ Split
-                            {it.split && it.splitWith.length
-                              ? ` ÷${it.splitWith.length}`
-                              : ""}
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </div>
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })}
             {!allAssigned && (
               <div className="rounded-xl border border-danger/20 bg-danger/10 px-3.5 py-2.5 text-[13px] text-danger">
                 {items.filter((it) => !it.split && !it.assignee).length} items still unassigned
@@ -561,7 +784,7 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
               Save bill
             </button>
           </div>
-          {splitPicker !== null && (
+          {splitPicker !== null && items[splitPicker] && (
             <SplitPicker
               item={items[splitPicker]}
               names={names}
@@ -581,6 +804,61 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
             />
           )}
         </>
+      )}
+
+      {adding && (
+        <Sheet
+          title="Add another receipt"
+          subtitle="Append a slip to this bill"
+          onClose={() => !scanning && setAdding(false)}
+        >
+          <input
+            ref={addCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => void handleFile(e.target.files?.[0], true)}
+          />
+          <input
+            ref={addLibraryRef}
+            type="file"
+            accept="image/*,.heic,.heif"
+            className="hidden"
+            onChange={(e) => void handleFile(e.target.files?.[0], true)}
+          />
+          <button
+            onClick={!scanning ? () => addCameraRef.current?.click() : undefined}
+            className="mb-2.5 flex w-full flex-col items-center gap-2 rounded-[14px] border-2 border-dashed border-accent/30 bg-accent/[0.04] px-8 py-8"
+          >
+            <Camera size={28} className="text-accent" />
+            <div className="text-sm font-bold text-accent">
+              {scanning ? "Reading receipt…" : "Take photo"}
+            </div>
+          </button>
+          <button
+            onClick={() => addLibraryRef.current?.click()}
+            disabled={scanning}
+            className="btn-ghost mb-2.5 flex items-center justify-center gap-2"
+          >
+            <ImageIcon size={16} /> Photo library
+          </button>
+          <button
+            disabled={scanning}
+            onClick={() => {
+              appendDraft(blankDraft());
+              setAdding(false);
+            }}
+            className="btn-ghost flex items-center justify-center gap-2"
+          >
+            <Pencil size={16} /> Enter manually
+          </button>
+          {ocrError && (
+            <div className="mt-3 rounded-xl border border-danger/20 bg-danger/10 px-3.5 py-3 text-[13px] text-danger">
+              {ocrError}
+            </div>
+          )}
+        </Sheet>
       )}
 
       {equalConfirm && (
@@ -653,4 +931,3 @@ function SplitPicker({
     </div>
   );
 }
-

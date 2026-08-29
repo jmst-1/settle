@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { getBill, updateBill } from "@/lib/data/repo";
 import { visibleBills } from "@/lib/me";
-import type { BillItem } from "@/lib/types";
+import type { BillItem, BillReceipt } from "@/lib/types";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const user = await getSessionUser();
@@ -28,6 +28,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     receiptTotal: number;
     paidBy: string;
     payNowNumber: string;
+    receipts?: BillReceipt[];
   };
   try {
     const bill = await updateBill(user.id, params.id, {
@@ -42,6 +43,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       receiptTotal: Number(body.receiptTotal) || 0,
       paidBy: body.paidBy,
       payNowNumber: body.payNowNumber || "",
+      receipts: body.receipts,
     });
     return NextResponse.json({ bill });
   } catch (e) {

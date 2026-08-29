@@ -4,6 +4,17 @@ export type BillItem = {
   assignee: string | null;
   split: boolean;
   splitWith: string[];
+  receiptId?: string;
+};
+
+export type BillReceipt = {
+  id: string;
+  label: string;
+  billDate: string;
+  discount: number;
+  serviceCharge: number;
+  tax: number;
+  receiptTotal: number;
 };
 
 export type BillDebt = {
@@ -30,6 +41,8 @@ export type Bill = {
   debts: BillDebt[];
   createdAt: string;
   lockedAt: string | null;
+  /** Per-slip extras. Omitted or one entry = a single-receipt bill. */
+  receipts?: BillReceipt[];
 };
 
 export type InboxReceipt = {

@@ -100,6 +100,7 @@ export function HomeScreen() {
                     </div>
                     <div className="mt-1 text-[11px] text-muted">
                       {creatorName(users, b.createdBy)}&apos;s tab · paid by {b.paidBy}
+                      {b.receipts && b.receipts.length > 1 ? ` · ${b.receipts.length} receipts` : ""}
                     </div>
                   </div>
                   <div className="shrink-0 text-right">

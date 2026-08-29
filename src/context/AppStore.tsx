@@ -39,7 +39,7 @@ type AppStore = AppState & {
   addContact: (name: string, paynow?: string) => Promise<Contact>;
   saveBill: (
     bill: Omit<Bill, "debts" | "lockedAt" | "createdBy" | "createdAt" | "id"> & { id?: string },
-    inboxId?: string,
+    inboxIds?: string[],
   ) => Promise<void>;
   updateBill: (
     id: string,
@@ -179,8 +179,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const saveBill = useCallback(
-    async (bill: Omit<Bill, "debts" | "lockedAt" | "createdBy" | "createdAt" | "id"> & { id?: string }, inboxId?: string) => {
-      await post("/api/bills", { ...bill, inboxId });
+    async (
+      bill: Omit<Bill, "debts" | "lockedAt" | "createdBy" | "createdAt" | "id"> & { id?: string },
+      inboxIds?: string[],
+    ) => {
+      await post("/api/bills", { ...bill, inboxIds });
     },
     [post],
   );

@@ -1,26 +1,22 @@
 import type { OcrResult } from "@/lib/types";
 import type { BillItem } from "@/lib/types";
 
-export function expandOcr(ocr: OcrResult): BillItem[] {
+export function expandOcr(ocr: OcrResult, receiptId?: string): BillItem[] {
   return (ocr.items || []).flatMap((it) => {
     const qty = it.qty || 1;
-    if (qty <= 1) {
-      return [
-        {
-          name: it.name,
-          price: parseFloat(String(it.unitPrice)) || 0,
-          assignee: null,
-          split: false,
-          splitWith: [],
-        },
-      ];
-    }
-    return Array.from({ length: qty }, (_, k) => ({
-      name: `${it.name} #${k + 1}`,
+    const base = {
       price: parseFloat(String(it.unitPrice)) || 0,
       assignee: null,
       split: false,
-      splitWith: [],
+      splitWith: [] as string[],
+      receiptId,
+    };
+    if (qty <= 1) {
+      return [{ name: it.name, ...base }];
+    }
+    return Array.from({ length: qty }, (_, k) => ({
+      name: `${it.name} #${k + 1}`,
+      ...base,
     }));
   });
 }

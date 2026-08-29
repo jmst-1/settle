@@ -133,6 +133,21 @@ export const DUMMY_OCR: Record<string, OcrResult> = {
     tax: 29.31,
     total: 355.91,
   },
+  "bill-4": {
+    occasion: "PS.Cafe Harding Road",
+    bill_date: "2026-06-14",
+    currency: "SGD",
+    items: [
+      { name: "Espresso Martini", qty: 1, unitPrice: 22 },
+      { name: "Mimosa", qty: 2, unitPrice: 16 },
+      { name: "Iced Latte", qty: 1, unitPrice: 8 },
+      { name: "Bloody Mary", qty: 1, unitPrice: 18 },
+    ],
+    discount: 0,
+    serviceCharge: 8.0,
+    tax: 7.92,
+    total: 95.92,
+  },
 };
 
 function bill(
@@ -149,6 +164,7 @@ function bill(
       partial.discount,
       partial.serviceCharge,
       partial.tax,
+      partial.receipts,
     ),
   };
 }
@@ -245,6 +261,14 @@ export const SEED_INBOX: InboxReceipt[] = [
     processed: false,
     ownerId: "usr_alice",
     ocr: DUMMY_OCR["bill-2"],
+  },
+  {
+    id: "rx-drinks",
+    label: "Sunday drinks",
+    capturedAt: "2026-08-16T11:22:00Z",
+    processed: false,
+    ownerId: "usr_alice",
+    ocr: DUMMY_OCR["bill-4"],
   },
 ];
 

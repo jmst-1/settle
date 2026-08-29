@@ -47,10 +47,10 @@ export async function saveBill(
     id?: string;
     createdAt?: string;
   },
-  inboxId?: string,
+  inboxIds?: string | string[],
 ) {
-  if (mem()) return memory.saveBill(userId, input, inboxId);
-  return supabaseRepo.saveBill(userId, input, inboxId);
+  if (mem()) return memory.saveBill(userId, input, inboxIds);
+  return supabaseRepo.saveBill(userId, input, inboxIds);
 }
 
 export async function updateBill(

@@ -83,6 +83,7 @@ function withDebts(bill: Omit<Bill, "debts" | "lockedAt"> & { lockedAt?: string 
       bill.discount,
       bill.serviceCharge,
       bill.tax,
+      bill.receipts,
     ),
   };
 }
@@ -237,7 +238,7 @@ export function saveBill(
     id?: string;
     createdAt?: string;
   },
-  inboxId?: string,
+  inboxIds?: string | string[],
 ) {
   const snap = getSnapshot();
   upsertRoster(userId, input.names, input.payNowNumber, input.paidBy);
@@ -249,9 +250,10 @@ export function saveBill(
     lockedAt: null,
   });
   snap.bills.unshift(bill);
-  if (inboxId) {
+  const idSet = new Set((Array.isArray(inboxIds) ? inboxIds : inboxIds ? [inboxIds] : []).filter(Boolean));
+  if (idSet.size) {
     snap.inbox = snap.inbox.map((r) =>
-      r.id === inboxId && r.ownerId === userId ? { ...r, processed: true } : r,
+      idSet.has(r.id) && r.ownerId === userId ? { ...r, processed: true } : r,
     );
   }
   return bill;

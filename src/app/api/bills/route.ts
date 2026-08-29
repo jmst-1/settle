@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { saveBill } from "@/lib/data/repo";
-import type { BillItem } from "@/lib/types";
+import type { BillItem, BillReceipt } from "@/lib/types";
 
 export async function POST(req: Request) {
   const user = await getSessionUser();
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
     paidBy: string;
     payNowNumber: string;
     inboxId?: string;
+    inboxIds?: string[];
+    receipts?: BillReceipt[];
   };
   if (!body.names?.length || !body.paidBy) {
     return NextResponse.json({ error: "People and payer required" }, { status: 400 });
@@ -36,8 +38,9 @@ export async function POST(req: Request) {
       receiptTotal: Number(body.receiptTotal) || 0,
       paidBy: body.paidBy,
       payNowNumber: body.payNowNumber || "",
+      receipts: body.receipts,
     },
-    body.inboxId,
+    body.inboxIds ?? (body.inboxId ? [body.inboxId] : undefined),
   );
   return NextResponse.json({ bill });
 }

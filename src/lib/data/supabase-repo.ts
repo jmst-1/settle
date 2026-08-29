@@ -180,6 +180,7 @@ function itemFromRow(
     unit_price: number;
     quantity: number;
     assignments: { name: string; share: number }[];
+    receiptId?: string;
   },
 ): BillItem[] {
   const qty = item.quantity || 1;
@@ -190,6 +191,7 @@ function itemFromRow(
     assignee: split ? null : assignees[0] ?? null,
     split,
     splitWith: split ? assignees : [],
+    receiptId: item.receiptId,
   };
   if (qty <= 1) return [{ name: item.name, ...base }];
   return Array.from({ length: qty }, (_, i) => ({
@@ -218,6 +220,7 @@ async function mapBill(row: Record<string, unknown>): Promise<Bill> {
       unit_price: Number(it.unit_price),
       quantity: Number(it.quantity ?? 1),
       assignments: assigns.filter((a) => a.name),
+      receiptId: (it.receipt_id as string) || undefined,
     });
   });
   const paidBy = (payer?.name as string) || names[0] || "";
@@ -244,6 +247,7 @@ async function mapBill(row: Record<string, unknown>): Promise<Bill> {
     debts,
     createdAt: row.created_at as string,
     lockedAt: (row.locked_at as string) || null,
+    receipts: (row.receipts as Bill["receipts"]) || undefined,
   };
 }
 
@@ -392,6 +396,7 @@ async function persistBill(
     input.discount,
     input.serviceCharge,
     input.tax,
+    input.receipts,
   );
 
   const billFields = {
@@ -407,6 +412,7 @@ async function persistBill(
     total,
     receipt_url: null as string | null,
     status: "open",
+    receipts: input.receipts ?? null,
   };
 
   let billId = existingId;
@@ -457,6 +463,7 @@ async function persistBill(
         unit_price: it.price,
         quantity: 1,
         sort_order: i,
+        receipt_id: it.receiptId ?? null,
       })
       .select("id")
       .single();
@@ -495,15 +502,16 @@ export async function saveBill(
     id?: string;
     createdAt?: string;
   },
-  inboxId?: string,
+  inboxIds?: string | string[],
 ) {
   const bill = await persistBill(userId, input);
-  if (inboxId) {
+  const ids = (Array.isArray(inboxIds) ? inboxIds : inboxIds ? [inboxIds] : []).filter(Boolean);
+  if (ids.length) {
     const sb = admin();
     await sb
       .from("receipt_inbox")
       .update({ processed: true, bill_id: bill.id })
-      .eq("id", inboxId)
+      .in("id", ids)
       .eq("owner_id", userId);
   }
   return bill;
