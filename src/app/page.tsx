@@ -1,7 +1,10 @@
-"use client";
-
-import { HomeScreen } from "@/components/bill/HomeScreen";
+import { Suspense } from "react";
+import HomeClaim from "./home-claim";
 
 export default function Page() {
-  return <HomeScreen />;
+  return (
+    <Suspense>
+      <HomeClaim />
+    </Suspense>
+  );
 }

@@ -1,113 +1,68 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Bookmark, ChevronDown, ChevronUp } from "lucide-react";
 import { Amt, Perf } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { PayNowQR } from "@/components/ui/PayNowQR";
 import { ConfirmSheet } from "@/components/ui/Sheet";
-import { useMock } from "@/context/MockStore";
-import { personTotals, foldDebtsForPairs } from "@/lib/debts";
-import {
-  creatorName,
-  expandPairNames,
-  pairContaining,
-  pairsForCreator,
-  partnerName,
-  paynowForContact,
-  userByToken,
-} from "@/lib/me";
 import { nameColor } from "@/lib/colors";
 import { fmtDate, fmtMoney } from "@/lib/format";
 
+type Creditor = {
+  key: string;
+  creatorId: string;
+  creditor: string;
+  amount: number;
+  paynow: string;
+  settler?: string | null;
+  partner?: string | null;
+  bills: {
+    id: string;
+    occasion: string;
+    date: string;
+    amount: number;
+    items: { name: string; amount: number; isShared: boolean }[];
+    discount: number;
+    sc: number;
+    tax: number;
+  }[];
+};
+
+type PortalData = {
+  token: string;
+  name: string;
+  linkedUserId: string | null;
+  creatorId: string | null;
+  creatorLabel: string | null;
+  creditors: Creditor[];
+};
+
 export function PortalScreen({ token }: { token: string }) {
-  const { bills, users, contacts, pairs, portalPay, setCurrentUser } = useMock();
-  const router = useRouter();
-  const member = userByToken(users, token);
+  const [data, setData] = useState<PortalData | null>(null);
+  const [missing, setMissing] = useState(false);
   const [openBill, setOpenBill] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [hint, setHint] = useState(true);
+  const [paidNote, setPaidNote] = useState("");
 
-  const name = member?.name;
-
-  const creditors = useMemo(() => {
-    if (!name) return [];
-    const map = new Map<
-      string,
-      {
-        key: string;
-        creatorId: string;
-        creditor: string;
-        amount: number;
-        paynow: string;
-        settler: string | null;
-        partner: string | null;
-        bills: {
-          id: string;
-          occasion: string;
-          date: string;
-          amount: number;
-          items: { name: string; amount: number; isShared: boolean }[];
-          discount: number;
-          sc: number;
-          tax: number;
-        }[];
-      }
-    >();
-
-    for (const bill of bills) {
-      const myNames = expandPairNames(pairs, bill.createdBy, name);
-      const debts = bill.debts.filter((d) => myNames.includes(d.from) && !d.settled);
-      if (!debts.length) continue;
-      const creatorPairs = pairsForCreator(pairs, bill.createdBy);
-      const folded = foldDebtsForPairs(debts, creatorPairs);
-      const totals = personTotals(bill);
-      const mergedItems = myNames.flatMap((n) =>
-        (totals[n]?.items ?? []).map((it) => ({
-          name: it.name,
-          amount: it.amount,
-          isShared: it.isShared,
-        })),
-      );
-      const mergedDiscount = myNames.reduce((s, n) => s + (totals[n]?.discount ?? 0), 0);
-      const mergedSc = myNames.reduce((s, n) => s + (totals[n]?.sc ?? 0), 0);
-      const mergedTax = myNames.reduce((s, n) => s + (totals[n]?.tax ?? 0), 0);
-      const pair = pairContaining(pairs, bill.createdBy, name);
-
-      for (const d of folded) {
-        const key = `${bill.createdBy}::${d.to}`;
-        const cur = map.get(key) ?? {
-          key,
-          creatorId: bill.createdBy,
-          creditor: d.to,
-          amount: 0,
-          paynow: paynowForContact(contacts, users, d.to, bill.createdBy),
-          settler: pair && pair.memberNames.includes(name) ? pair.settler : null,
-          partner: pair && pair.memberNames.includes(name) ? partnerName(pair, pair.settler) : null,
-          bills: [],
-        };
-        cur.amount += d.amount;
-        cur.bills.push({
-          id: bill.id,
-          occasion: bill.occasion,
-          date: bill.billDate,
-          amount: d.amount,
-          items: mergedItems,
-          discount: mergedDiscount,
-          sc: mergedSc,
-          tax: mergedTax,
-        });
-        map.set(key, cur);
-      }
+  const load = async () => {
+    const res = await fetch(`/api/portal/${token}`);
+    if (res.status === 404) {
+      setMissing(true);
+      return;
     }
-    return Array.from(map.values());
-  }, [bills, name, contacts, users, pairs]);
+    if (!res.ok) return;
+    setData((await res.json()) as PortalData);
+  };
 
-  const total = creditors.reduce((s, c) => s + c.amount, 0);
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
-  if (!name || !member) {
+  if (missing) {
     return (
       <div className="px-6 py-20 text-center">
         <div className="text-lg font-extrabold">Link not found</div>
@@ -116,6 +71,14 @@ export function PortalScreen({ token }: { token: string }) {
     );
   }
 
+  if (!data) {
+    return (
+      <div className="px-6 py-20 text-center text-sm text-muted">Loading…</div>
+    );
+  }
+
+  const { name, creditors } = data;
+  const total = creditors.reduce((s, c) => s + c.amount, 0);
   const pending = confirm ? creditors.find((c) => c.key === confirm) : null;
 
   return (
@@ -125,7 +88,13 @@ export function PortalScreen({ token }: { token: string }) {
         <div className="text-[15px] text-dim">Hi, {name}</div>
         <div className="mt-1 text-[13px] text-muted">
           {creditors.some((c) => c.settler && c.settler !== name)
-            ? `${Array.from(new Set(creditors.filter((c) => c.settler && c.settler !== name).map((c) => c.settler))).join(", ")} settles for you · combined`
+            ? `${Array.from(
+                new Set(
+                  creditors
+                    .filter((c) => c.settler && c.settler !== name)
+                    .map((c) => c.settler as string),
+                ),
+              ).join(", ")} settles for you · combined`
             : "You owe"}
         </div>
         <div className="mt-1 font-mono text-[40px] font-extrabold tracking-tight leading-none">
@@ -133,6 +102,12 @@ export function PortalScreen({ token }: { token: string }) {
           <span className="ml-1.5 text-sm font-normal text-muted">SGD</span>
         </div>
       </div>
+
+      {paidNote && (
+        <div className="mx-5 mb-4 rounded-xl border border-ok/20 bg-ok/10 px-4 py-3 text-sm font-semibold text-ok">
+          {paidNote}
+        </div>
+      )}
 
       {total === 0 ? (
         <div className="mx-5 mt-8 rounded-2xl border border-ok/20 bg-ok/10 px-5 py-10 text-center">
@@ -149,7 +124,6 @@ export function PortalScreen({ token }: { token: string }) {
           </p>
           {creditors.map((c) => {
             const color = nameColor(c.creditor, [name, c.creditor]);
-            const tab = creatorName(users, c.creatorId);
             return (
               <div key={c.key} className="card">
                 <div
@@ -159,10 +133,8 @@ export function PortalScreen({ token }: { token: string }) {
                   <Avatar name={c.creditor} names={[name, c.creditor]} size={40} />
                   <div className="flex-1">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                      Pay · {tab}&apos;s tab
-                      {c.settler && c.partner
-                        ? ` · ${c.settler} (for ${c.partner})`
-                        : ""}
+                      Pay · {data.creatorLabel ? `${data.creatorLabel}'s tab` : "tab"}
+                      {c.settler && c.partner ? ` · ${c.settler} (for ${c.partner})` : ""}
                     </div>
                     <div className="text-[17px] font-extrabold">{c.creditor}</div>
                   </div>
@@ -173,9 +145,7 @@ export function PortalScreen({ token }: { token: string }) {
                     <>
                       <PayNowQR proxy={c.paynow} amount={c.amount} size={220} />
                       <div className="mt-3 font-mono text-xs text-dim">{c.paynow}</div>
-                      <div className="mt-1 text-[11px] text-muted">
-                        Scan with your banking app
-                      </div>
+                      <div className="mt-1 text-[11px] text-muted">Scan with your banking app</div>
                     </>
                   ) : (
                     <div className="text-sm text-muted">No PayNow on file for {c.creditor}</div>
@@ -188,9 +158,7 @@ export function PortalScreen({ token }: { token: string }) {
                     return (
                       <div key={b.id}>
                         <button
-                          onClick={() =>
-                            setOpenBill(open ? null : `${c.key}-${b.id}`)
-                          }
+                          onClick={() => setOpenBill(open ? null : `${c.key}-${b.id}`)}
                           className="flex w-full items-center justify-between px-3 py-2.5 text-left"
                         >
                           <span>
@@ -224,10 +192,7 @@ export function PortalScreen({ token }: { token: string }) {
                   })}
                 </div>
                 <div className="p-4 pt-1">
-                  <button
-                    onClick={() => setConfirm(c.key)}
-                    className="btn-primary"
-                  >
+                  <button onClick={() => setConfirm(c.key)} className="btn-primary">
                     I&apos;ve paid {c.creditor}
                   </button>
                 </div>
@@ -250,17 +215,11 @@ export function PortalScreen({ token }: { token: string }) {
       )}
 
       <div className="mt-8 px-5 text-center">
-        <button
-          className="text-[13px] font-semibold text-accent"
-          onClick={() => {
-            setCurrentUser(member.id);
-            router.push("/");
-          }}
-        >
+        <Link href={`/?claim=${encodeURIComponent(token)}`} className="text-[13px] font-semibold text-accent">
           Open my bills
-        </button>
+        </Link>
         <div className="mt-2">
-          <Link href="/login" className="text-[12px] font-semibold text-muted">
+          <Link href={`/login?claim=${encodeURIComponent(token)}`} className="text-[12px] font-semibold text-muted">
             Save this in SplitTab
           </Link>
         </div>
@@ -273,18 +232,23 @@ export function PortalScreen({ token }: { token: string }) {
             pending.settler && pending.partner
               ? `${pending.settler} & ${pending.partner}`
               : "you"
-          } paid ${pending.creditor} ${fmtMoney(
-            pending.amount,
-          )} on ${creatorName(users, pending.creatorId)}'s tab. SplitTab does not move the money.`}
+          } paid ${pending.creditor} ${fmtMoney(pending.amount)}. SplitTab does not move the money.`}
           confirmLabel={`I've paid ${pending.creditor}`}
           onClose={() => setConfirm(null)}
-          onConfirm={() => {
-            portalPay(
-              name,
-              pending.creditor,
-              pending.bills.map((b) => b.id),
-            );
+          onConfirm={async () => {
+            const res = await fetch(`/api/portal/${token}/pay`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: pending.creditor,
+                billIds: pending.bills.map((b) => b.id),
+              }),
+            });
+            const result = await res.json();
             setConfirm(null);
+            if (result.alreadySettled) setPaidNote("Already marked paid");
+            else if (res.ok) setPaidNote(`Told ${pending.creditor} you paid`);
+            await load();
           }}
         />
       )}

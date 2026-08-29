@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SectionHeader } from "@/components/ui/Typography";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
+import { origin } from "@/lib/format";
 
 export default function SettingsPage() {
-  const { currentUser, setProfile } = useMock();
+  const { currentUser, setProfile, logout } = useApp();
   const [name, setName] = useState(currentUser.name);
   const [paynow, setPaynow] = useState(currentUser.paynow);
   const router = useRouter();
@@ -20,10 +21,7 @@ export default function SettingsPage() {
     <div className="pb-28">
       <SectionHeader title="Settings" onBack={() => router.push("/")} />
       <div className="flex flex-col gap-3.5 px-5">
-        <div className="text-[13px] text-dim">
-          Signed in as {currentUser.name}
-          {currentUser.superUser ? " · super user" : ""}
-        </div>
+        <div className="text-[13px] text-dim">Signed in as {currentUser.name}</div>
         <div className="card p-4">
           <label className="text-[11px] font-bold uppercase tracking-wider text-muted">
             Display name
@@ -40,20 +38,23 @@ export default function SettingsPage() {
         <div className="card p-4">
           <div className="text-[11px] font-bold uppercase tracking-wider text-muted">Your link</div>
           <p className="mt-2 break-all font-mono text-[12px] text-dim">
-            /settle/{currentUser.shareToken}
+            {origin()}/settle/{currentUser.shareToken}
           </p>
           <p className="mt-2 text-[12px] text-muted">
-            Unguessable token. Not your name. This is how friends open your pay page and your bills.
+            Unguessable token. Not your name. This is how friends open your pay page.
           </p>
         </div>
         <button
           className="btn-primary"
-          onClick={() => {
-            setProfile(name, paynow);
+          onClick={async () => {
+            await setProfile(name, paynow);
             router.push("/");
           }}
         >
           Save
+        </button>
+        <button className="btn-ghost" onClick={() => void logout()}>
+          Sign out
         </button>
       </div>
     </div>

@@ -7,12 +7,13 @@ import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmSheet, Sheet } from "@/components/ui/Sheet";
 import { PayNowQR } from "@/components/ui/PayNowQR";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 import { foldDebtsForPairs } from "@/lib/debts";
 import { fmtMoney, origin } from "@/lib/format";
 import { nameColor } from "@/lib/colors";
 import {
   canTagSettlement,
+  canUndoSettlement,
   creatorName,
   expandPairNames,
   involvingMe,
@@ -22,21 +23,20 @@ import {
   paynowForContact,
   settlementPayerLabel,
   tabsByCreator,
-  userByName,
+  tokenForPerson,
   visibleBills,
 } from "@/lib/me";
 
 export function SettleScreen() {
-  const { bills, users, contacts, pairs, currentUser, settlePair, undoPair, markNotificationRead } = useMock();
+  const { bills, users, contacts, pairs, currentUser, settlePair, undoPair, markNotificationRead } = useApp();
   const router = useRouter();
   useEffect(() => {
-    markNotificationRead();
+    void markNotificationRead();
   }, [markNotificationRead]);
   const mine = visibleBills(bills, currentUser);
-  const tabs = tabsByCreator(mine, pairs).filter((tab) => {
-    if (currentUser.superUser) return tab.simplified.length > 0 || tab.rawUnsettled.length > 0;
-    return involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId).length > 0;
-  });
+  const tabs = tabsByCreator(mine, pairs).filter(
+    (tab) => involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId).length > 0,
+  );
 
   const [qr, setQr] = useState<{ name: string; pn: string; amount: number } | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -45,13 +45,13 @@ export function SettleScreen() {
     amount: number;
     creatorId: string;
   } | null>(null);
-  const [share, setShare] = useState<{ from: string; amount: number } | null>(null);
+  const [share, setShare] = useState<{ from: string; amount: number; creatorId: string } | null>(null);
 
   const recentlySettled = useMemo(() => {
-    if (!currentUser.superUser) return [];
     const rows: { a: string; b: string; creatorId: string }[] = [];
     const seen = new Set<string>();
     mine.forEach((bill) => {
+      if (!canUndoSettlement(currentUser, bill.createdBy)) return;
       foldDebtsForPairs(
         bill.debts.filter((d) => d.settled),
         pairsForCreator(pairs, bill.createdBy),
@@ -63,7 +63,7 @@ export function SettleScreen() {
       });
     });
     return rows;
-  }, [mine, currentUser.superUser, pairs]);
+  }, [mine, currentUser, pairs]);
 
   const confirmPair = confirm
     ? pairContaining(pairs, confirm.creatorId, confirm.from)
@@ -75,11 +75,7 @@ export function SettleScreen() {
     <div className="pb-28">
       <SectionHeader
         title="Settle up"
-        subtitle={
-          currentUser.superUser
-            ? "Each creator’s tab is netted separately"
-            : "Your balances, per creator — tabs don’t mix"
-        }
+        subtitle="Your balances, per creator — tabs don’t mix"
         onBack={() => router.push("/")}
       />
 
@@ -96,9 +92,7 @@ export function SettleScreen() {
           </p>
           {tabs.map((tab) => {
             const owner = creatorName(users, tab.creatorId);
-            const txns = currentUser.superUser
-              ? tab.simplified
-              : involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId);
+            const txns = involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId);
             if (!txns.length) return null;
             return (
               <div key={tab.creatorId}>
@@ -145,9 +139,11 @@ export function SettleScreen() {
                         </div>
                         <Perf />
                         <div className="flex gap-2 p-4">
-                          {(theyPayMe || currentUser.id === tab.creatorId || currentUser.superUser) && (
+                          {(theyPayMe || currentUser.id === tab.creatorId) && (
                             <button
-                              onClick={() => setShare({ from: txn.from, amount: txn.amount })}
+                              onClick={() =>
+                                setShare({ from: txn.from, amount: txn.amount, creatorId: tab.creatorId })
+                              }
                               className="flex-1 rounded-xl py-2.5 text-xs font-bold"
                               style={{
                                 border: `1px solid ${color}44`,
@@ -168,9 +164,7 @@ export function SettleScreen() {
                           )}
                           {canTag && (
                             <button
-                              onClick={() =>
-                                setConfirm({ ...txn, creatorId: tab.creatorId })
-                              }
+                              onClick={() => setConfirm({ ...txn, creatorId: tab.creatorId })}
                               className="flex-1 rounded-xl bg-ok/10 py-2.5 text-xs font-bold text-ok"
                             >
                               <Check size={12} className="mr-1 inline" />{" "}
@@ -190,12 +184,12 @@ export function SettleScreen() {
 
       {recentlySettled.length > 0 && (
         <div className="mt-6 px-5">
-          <Label>Undo (super only)</Label>
+          <Label>Undo (your tabs)</Label>
           <div className="mt-2 flex flex-col gap-2">
             {recentlySettled.map((p) => (
               <button
                 key={`${p.creatorId}-${p.a}-${p.b}`}
-                onClick={() => undoPair(p.a, p.b, p.creatorId)}
+                onClick={() => void undoPair(p.a, p.b, p.creatorId)}
                 className="flex items-center justify-between rounded-xl border border-border bg-card-2 px-3 py-2.5 text-left text-[13px] text-dim"
               >
                 <span>
@@ -226,7 +220,7 @@ export function SettleScreen() {
           subtitle="Unguessable token. Their me-centric app + pay page."
           onClose={() => setShare(null)}
         >
-          <ShareLinkPreview from={share.from} amount={share.amount} />
+          <ShareLinkPreview from={share.from} amount={share.amount} creatorId={share.creatorId} />
         </Sheet>
       )}
 
@@ -237,7 +231,7 @@ export function SettleScreen() {
           confirmLabel="Mark paid"
           onClose={() => setConfirm(null)}
           onConfirm={() => {
-            settlePair(confirm.from, confirm.to, confirm.creatorId);
+            void settlePair(confirm.from, confirm.to, confirm.creatorId);
             setConfirm(null);
           }}
         />
@@ -246,14 +240,21 @@ export function SettleScreen() {
   );
 }
 
-function ShareLinkPreview({ from, amount }: { from: string; amount: number }) {
-  const { users } = useMock();
-  const member = userByName(users, from);
-  const token = member?.shareToken;
+function ShareLinkPreview({
+  from,
+  amount,
+  creatorId,
+}: {
+  from: string;
+  amount: number;
+  creatorId: string;
+}) {
+  const { users, contacts } = useApp();
+  const token = tokenForPerson(contacts, users, from, creatorId);
   const url = token ? `${origin()}/settle/${token}` : "";
   const text = token
     ? `${from}, your SplitTab balance is SGD ${amount.toFixed(2)} — ${url}`
-    : `${from} doesn’t have an app link in this mock (new names aren’t users yet).`;
+    : `${from} doesn’t have a settle link yet.`;
   const [copied, setCopied] = useState(false);
   return (
     <div>

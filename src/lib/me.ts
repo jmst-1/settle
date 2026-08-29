@@ -1,5 +1,5 @@
 import { foldDebtsForPairs, simplifyDebts } from "@/lib/debts";
-import type { Bill, Contact, Member, PayeePair } from "@/lib/types";
+import type { Bill, Contact, Group, Member, PayeePair } from "@/lib/types";
 
 export function userById(users: Member[], id: string) {
   return users.find((u) => u.id === id);
@@ -13,18 +13,37 @@ export function userByToken(users: Member[], token: string) {
   return users.find((u) => u.shareToken === token);
 }
 
+export function contactByToken(contacts: Contact[], token: string) {
+  return contacts.find((c) => c.shareToken === token);
+}
+
 export function creatorName(users: Member[], creatorId: string) {
   return userById(users, creatorId)?.name ?? "Someone";
 }
 
-export function rosterFor(contacts: Contact[], creatorId: string) {
-  return contacts.filter((c) => c.creatorId === creatorId);
+export function rosterFor(contacts: Contact[], creatorId: string, groupId?: string) {
+  return contacts.filter((c) => {
+    if (c.creatorId !== creatorId) return false;
+    if (groupId) return c.groupId === groupId;
+    return true;
+  });
 }
 
-export function matchRosterName(contacts: Contact[], creatorId: string, raw: string) {
+export function personalRoster(contacts: Contact[], groups: Group[], creatorId: string) {
+  const personal = groups.find((g) => g.ownerId === creatorId && g.isPersonal);
+  if (!personal) return rosterFor(contacts, creatorId);
+  return contacts.filter((c) => c.groupId === personal.id);
+}
+
+export function matchRosterName(
+  contacts: Contact[],
+  creatorId: string,
+  raw: string,
+  groupId?: string,
+) {
   const q = raw.trim().toLowerCase();
   if (!q) return null;
-  return rosterFor(contacts, creatorId).find((c) => c.name.toLowerCase() === q) ?? null;
+  return rosterFor(contacts, creatorId, groupId).find((c) => c.name.toLowerCase() === q) ?? null;
 }
 
 export function pairsForCreator(pairs: PayeePair[], creatorId: string) {
@@ -59,9 +78,23 @@ export function settlementPayerLabel(
   return `${display} (for ${partnerDisplay})`;
 }
 
+export function debtMatchesExpanded(
+  debt: { from: string; to: string },
+  from: string,
+  to: string,
+  pairs: PayeePair[],
+  creatorId: string,
+) {
+  const fromNames = expandPairNames(pairs, creatorId, from);
+  const toNames = expandPairNames(pairs, creatorId, to);
+  return (
+    (fromNames.includes(debt.from) && toNames.includes(debt.to)) ||
+    (fromNames.includes(debt.to) && toNames.includes(debt.from))
+  );
+}
+
 export function visibleBills(bills: Bill[], user: Member) {
-  if (user.superUser) return bills;
-  return bills.filter((b) => b.names.includes(user.name));
+  return bills.filter((b) => b.createdBy === user.id || b.names.includes(user.name));
 }
 
 export function myOutstanding(bills: Bill[], name: string, pairs: PayeePair[] = []) {
@@ -120,9 +153,7 @@ export function involvingMe(
   pairs: PayeePair[] = [],
   creatorId?: string,
 ) {
-  const aliases = new Set(
-    creatorId ? expandPairNames(pairs, creatorId, name) : [name],
-  );
+  const aliases = new Set(creatorId ? expandPairNames(pairs, creatorId, name) : [name]);
   return txns.filter((t) => aliases.has(t.from) || aliases.has(t.to));
 }
 
@@ -133,10 +164,14 @@ export function canTagSettlement(
   to: string,
   pairs: PayeePair[] = [],
 ) {
-  if (user.superUser || user.id === creatorId) return true;
+  if (user.id === creatorId) return true;
   const fromNames = expandPairNames(pairs, creatorId, from);
   const toNames = expandPairNames(pairs, creatorId, to);
   return fromNames.includes(user.name) || toNames.includes(user.name);
+}
+
+export function canUndoSettlement(user: Member, creatorId: string) {
+  return user.id === creatorId;
 }
 
 export function paynowForContact(
@@ -150,6 +185,19 @@ export function paynowForContact(
     if (mine?.paynow) return mine.paynow;
   }
   return users.find((u) => u.name === name)?.paynow ?? "";
+}
+
+export function tokenForPerson(
+  contacts: Contact[],
+  users: Member[],
+  name: string,
+  creatorId?: string,
+) {
+  if (creatorId) {
+    const c = contacts.find((x) => x.creatorId === creatorId && x.name === name);
+    if (c?.shareToken) return c.shareToken;
+  }
+  return users.find((u) => u.name === name)?.shareToken;
 }
 
 export function coveredByNote(pairs: PayeePair[], name: string) {

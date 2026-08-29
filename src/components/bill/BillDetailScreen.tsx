@@ -7,29 +7,31 @@ import { Amt, Perf, SectionHeader } from "@/components/ui/Typography";
 import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { nameColor } from "@/lib/colors";
-import { personTotals } from "@/lib/debts";
-import { creatorName, pairContaining, partnerName, userByName } from "@/lib/me";
+import { billSections, personTotals } from "@/lib/debts";
+import { creatorName, pairContaining, partnerName, tokenForPerson } from "@/lib/me";
 import { fmtDate, fmtMoney, origin } from "@/lib/format";
 import type { Bill } from "@/lib/types";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
+import { downloadShareCard } from "@/lib/share-card";
 
 export function BillDetailScreen({ bill }: { bill: Bill }) {
   const router = useRouter();
-  const { users, pairs, currentUser } = useMock();
+  const { users, contacts, pairs, currentUser } = useApp();
   const [tab, setTab] = useState<"summary" | "items">("summary");
   const [share, setShare] = useState<string | null>(null);
   const [card, setCard] = useState<string | null>(null);
   const totals = useMemo(() => personTotals(bill), [bill]);
+  const sections = useMemo(() => billSections(bill), [bill]);
+  const combined = (bill.receipts?.length ?? 0) > 1;
   const collected = Object.values(totals).reduce((s, t) => s + t.total, 0);
   const locked = Boolean(bill.lockedAt);
-  const canEdit =
-    !locked && (currentUser.superUser || currentUser.id === bill.createdBy);
+  const canEdit = !locked && currentUser.id === bill.createdBy;
 
   return (
     <div className="pb-10">
       <SectionHeader
         title={bill.occasion}
-        subtitle={`${fmtDate(bill.billDate)} · ${creatorName(users, bill.createdBy)}'s tab · Paid by ${bill.paidBy}${locked ? " · locked" : ""}`}
+        subtitle={`${fmtDate(bill.billDate)} · ${creatorName(users, bill.createdBy)}'s tab · Paid by ${bill.paidBy}${combined ? ` · ${bill.receipts!.length} receipts` : ""}${locked ? " · locked" : ""}`}
         onBack={() => router.push("/")}
         action={
           canEdit ? (
@@ -63,7 +65,7 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
             if (!t) return null;
             const color = nameColor(n, bill.names);
             const isPayer = n === bill.paidBy;
-            const token = userByName(users, n)?.shareToken;
+            const token = tokenForPerson(contacts, users, n, bill.createdBy);
             const pair = pairContaining(pairs, bill.createdBy, n);
             const other = pair ? partnerName(pair, n) : null;
             const settleHint =
@@ -112,6 +114,9 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                         <span>
                           {it.isShared && "⇌ "}
                           {it.name}
+                          {it.receiptLabel ? (
+                            <span className="ml-1 text-[11px] text-muted">· {it.receiptLabel}</span>
+                          ) : null}
                         </span>
                         <span className="font-mono text-xs">{fmtMoney(it.amount, bill.currency)}</span>
                       </div>
@@ -196,9 +201,24 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
                         </span>
                       </div>
                     </div>
-                    <p className="text-center text-[12px] text-muted">
-                      PNG export lands in the production build. Use Send link for the live page.
+                    <p className="mb-3 text-center text-[12px] text-muted">
+                      Static snapshot — the settle link stays live.
                     </p>
+                    <button
+                      className="btn-primary"
+                      onClick={() =>
+                        downloadShareCard({
+                          name: n,
+                          occasion: bill.occasion,
+                          date: bill.billDate,
+                          items: t.items,
+                          total: t.total,
+                          color,
+                        })
+                      }
+                    >
+                      Download PNG
+                    </button>
                   </Sheet>
                 )}
               </div>
@@ -215,35 +235,99 @@ export function BillDetailScreen({ bill }: { bill: Bill }) {
         )}
 
         {tab === "items" && (
-          <div className="card">
-            {bill.items.map((it, i) => (
-              <div key={i}>
-                {i > 0 && <Perf />}
-                <div className="flex justify-between gap-2 px-4 py-3.5">
-                  <div>
-                    <div className="text-[13px] font-semibold">
-                      {it.split && <span className="mr-1 text-accent">⇌</span>}
-                      {it.name}
+          <div className="flex flex-col gap-3.5">
+            {combined
+              ? sections.map((section) => {
+                  const subtotal = section.items.reduce((s, it) => s + it.price, 0);
+                  const derived =
+                    subtotal - section.receipt.discount + section.receipt.serviceCharge + section.receipt.tax;
+                  return (
+                    <div key={section.receipt.id} className="card">
+                      <div className="px-4 pb-1.5 pt-3.5">
+                        <div className="text-[13px] font-extrabold">{section.receipt.label}</div>
+                        <div className="mt-0.5 font-mono text-[11px] text-muted">
+                          {fmtDate(section.receipt.billDate)}
+                        </div>
+                      </div>
+                      {section.items.map((it, i) => (
+                        <div key={i}>
+                          <Perf />
+                          <div className="flex justify-between gap-2 px-4 py-3.5">
+                            <div>
+                              <div className="text-[13px] font-semibold">
+                                {it.split && <span className="mr-1 text-accent">⇌</span>}
+                                {it.name}
+                              </div>
+                              {it.split && (
+                                <div className="text-[11px] text-muted">Split: {it.splitWith.join(", ")}</div>
+                              )}
+                              {it.assignee && <div className="text-[11px] text-dim">{it.assignee}</div>}
+                            </div>
+                            <Amt value={it.price} />
+                          </div>
+                        </div>
+                      ))}
+                      <Perf />
+                      <div className="p-4">
+                        {section.receipt.discount > 0 && (
+                          <Row label="Discount" value={`− ${section.receipt.discount.toFixed(2)}`} color="var(--ok)" />
+                        )}
+                        {section.receipt.serviceCharge > 0 && (
+                          <Row label="Service charge" value={section.receipt.serviceCharge.toFixed(2)} />
+                        )}
+                        {section.receipt.tax > 0 && <Row label="GST" value={section.receipt.tax.toFixed(2)} />}
+                        <div className="mt-1 flex justify-between text-sm font-extrabold">
+                          <span>Slip total</span>
+                          <Amt value={section.receipt.receiptTotal || derived} color="var(--accent)" />
+                        </div>
+                      </div>
                     </div>
-                    {it.split && (
-                      <div className="text-[11px] text-muted">Split: {it.splitWith.join(", ")}</div>
+                  );
+                })
+              : (
+                <div className="card">
+                  {bill.items.map((it, i) => (
+                    <div key={i}>
+                      {i > 0 && <Perf />}
+                      <div className="flex justify-between gap-2 px-4 py-3.5">
+                        <div>
+                          <div className="text-[13px] font-semibold">
+                            {it.split && <span className="mr-1 text-accent">⇌</span>}
+                            {it.name}
+                          </div>
+                          {it.split && (
+                            <div className="text-[11px] text-muted">Split: {it.splitWith.join(", ")}</div>
+                          )}
+                          {it.assignee && <div className="text-[11px] text-dim">{it.assignee}</div>}
+                        </div>
+                        <Amt value={it.price} />
+                      </div>
+                    </div>
+                  ))}
+                  <Perf />
+                  <div className="p-4">
+                    {bill.discount > 0 && (
+                      <Row label="Discount" value={`− ${bill.discount.toFixed(2)}`} color="var(--ok)" />
                     )}
-                    {it.assignee && <div className="text-[11px] text-dim">{it.assignee}</div>}
+                    {bill.serviceCharge > 0 && (
+                      <Row label="Service charge" value={bill.serviceCharge.toFixed(2)} />
+                    )}
+                    {bill.tax > 0 && <Row label="GST" value={bill.tax.toFixed(2)} />}
+                    <div className="mt-1 flex justify-between text-[15px] font-extrabold">
+                      <span>Total</span>
+                      <Amt value={bill.receiptTotal} color="var(--accent)" size={16} />
+                    </div>
                   </div>
-                  <Amt value={it.price} />
                 </div>
+              )}
+            {combined && (
+              <div className="flex items-center justify-between rounded-[14px] border border-accent/20 bg-accent/10 px-[18px] py-3.5">
+                <span className="text-[13px] font-semibold text-muted">Combined total</span>
+                <span className="font-mono text-[17px] font-extrabold text-accent">
+                  {fmtMoney(bill.receiptTotal, bill.currency)}
+                </span>
               </div>
-            ))}
-            <Perf />
-            <div className="p-4">
-              {bill.discount > 0 && <Row label="Discount" value={`− ${bill.discount.toFixed(2)}`} color="var(--ok)" />}
-              {bill.serviceCharge > 0 && <Row label="Service charge" value={bill.serviceCharge.toFixed(2)} />}
-              {bill.tax > 0 && <Row label="GST" value={bill.tax.toFixed(2)} />}
-              <div className="mt-1 flex justify-between text-[15px] font-extrabold">
-                <span>Total</span>
-                <Amt value={bill.receiptTotal} color="var(--accent)" size={16} />
-              </div>
-            </div>
+            )}
           </div>
         )}
       </div>

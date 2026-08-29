@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Settings, Users } from "lucide-react";
 import { Amt } from "@/components/ui/Typography";
 import { AvatarStack } from "@/components/ui/Avatar";
-import { useMock } from "@/context/MockStore";
+import { useApp } from "@/context/AppStore";
 import { foldDebtsForPairs } from "@/lib/debts";
 import { fmtDate } from "@/lib/format";
 import {
@@ -18,14 +18,12 @@ import {
 } from "@/lib/me";
 
 export function HomeScreen() {
-  const { bills, users, pairs, currentUser } = useMock();
+  const { bills, users, pairs, currentUser } = useApp();
   const mine = visibleBills(bills, currentUser);
   const { owe, owed } = myOutstanding(mine, currentUser.name, pairs);
   const coverNote = coveredByNote(pairs, currentUser.name);
-  const hasSettle = tabsByCreator(mine, pairs).some((tab) =>
-    currentUser.superUser
-      ? tab.simplified.length > 0
-      : involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId).length > 0,
+  const hasSettle = tabsByCreator(mine, pairs).some(
+    (tab) => involvingMe(tab.simplified, currentUser.name, pairs, tab.creatorId).length > 0,
   );
 
   return (
@@ -36,14 +34,7 @@ export function HomeScreen() {
             SplitTab
           </div>
           <h1 className="m-0 text-[28px] font-extrabold tracking-tight">Bills</h1>
-          <div className="mt-1 text-[13px] text-dim">
-            Hi, {currentUser.name}
-            {currentUser.superUser && (
-              <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">
-                Super
-              </span>
-            )}
-          </div>
+          <div className="mt-1 text-[13px] text-dim">Hi, {currentUser.name}</div>
         </div>
         <div className="flex gap-1 pt-1">
           <Link href="/groups" className="rounded-xl p-2 text-dim" aria-label="Groups">
@@ -90,9 +81,7 @@ export function HomeScreen() {
             </div>
             <div className="mt-2 text-[11px] text-muted">
               {coverNote ? `${coverNote} on combined tabs. ` : ""}
-              {currentUser.superUser
-                ? "Your balances. Super sees every tab below, including ones you’re not on."
-                : "Bills you’re on. Nets stay inside each creator’s tab."}
+              Bills you’re on. Nets stay inside each creator’s tab.
             </div>
             {hasSettle && (
               <Link
@@ -113,9 +102,7 @@ export function HomeScreen() {
               const owedAmt = folded.reduce((s, d) => s + d.amount, 0);
               const allSettled = owedAmt === 0 && b.debts.length > 0;
               const myDebt = folded
-                .filter(
-                  (d) => d.from === currentUser.name || d.to === currentUser.name,
-                )
+                .filter((d) => d.from === currentUser.name || d.to === currentUser.name)
                 .reduce((s, d) => s + (d.from === currentUser.name ? d.amount : -d.amount), 0);
               return (
                 <Link
@@ -131,6 +118,7 @@ export function HomeScreen() {
                     </div>
                     <div className="mt-1 text-[11px] text-muted">
                       {creatorName(users, b.createdBy)}&apos;s tab · paid by {b.paidBy}
+                      {b.receipts && b.receipts.length > 1 ? ` · ${b.receipts.length} receipts` : ""}
                     </div>
                   </div>
                   <div className="shrink-0 text-right">

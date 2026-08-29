@@ -4,6 +4,17 @@ export type BillItem = {
   assignee: string | null;
   split: boolean;
   splitWith: string[];
+  receiptId?: string;
+};
+
+export type BillReceipt = {
+  id: string;
+  label: string;
+  billDate: string;
+  discount: number;
+  serviceCharge: number;
+  tax: number;
+  receiptTotal: number;
 };
 
 export type BillDebt = {
@@ -30,6 +41,8 @@ export type Bill = {
   debts: BillDebt[];
   createdAt: string;
   lockedAt: string | null;
+  /** Per-slip extras. Omitted or one entry = a single-receipt bill. */
+  receipts?: BillReceipt[];
 };
 
 export type InboxReceipt = {
@@ -37,8 +50,9 @@ export type InboxReceipt = {
   label: string;
   capturedAt: string;
   processed: boolean;
-  ocrKey: string;
   ownerId: string;
+  ocr?: OcrResult;
+  imagePath?: string;
 };
 
 export type Member = {
@@ -47,15 +61,25 @@ export type Member = {
   shareToken: string;
   paynow: string;
   paynowType: "mobile" | "uen";
-  superUser: boolean;
+  email?: string;
+};
+
+export type Group = {
+  id: string;
+  ownerId: string;
+  name: string;
+  isPersonal: boolean;
 };
 
 /** A person on one creator's roster. Same display name, different creator → different id. */
 export type Contact = {
   id: string;
   creatorId: string;
+  groupId: string;
   name: string;
   paynow: string;
+  shareToken: string;
+  linkedUserId?: string;
 };
 
 /** Two roster people who tag items separately but settle as one wallet. Creator-scoped. */
@@ -72,6 +96,7 @@ export type AppNotification = {
   createdAt: string;
   read: boolean;
   forName: string;
+  recipientUserId?: string;
 };
 
 export type OcrResult = {
