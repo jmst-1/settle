@@ -20,6 +20,7 @@ export async function POST(req: Request) {
     inboxId?: string;
     inboxIds?: string[];
     receipts?: BillReceipt[];
+    transactionId?: string;
   };
   if (!body.names?.length || !body.paidBy) {
     return NextResponse.json({ error: "People and payer required" }, { status: 400 });
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
       receipts: body.receipts,
     },
     body.inboxIds ?? (body.inboxId ? [body.inboxId] : undefined),
+    body.transactionId,
   );
   return NextResponse.json({ bill });
 }

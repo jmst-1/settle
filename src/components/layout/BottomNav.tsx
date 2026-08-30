@@ -13,9 +13,11 @@ const TABS = [
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { inbox, notifications, currentUser } = useApp();
-  const inboxCount = inbox.filter((r) => !r.processed && r.ownerId === currentUser.id).length;
-  const unread = notifications.filter((n) => !n.read).length;
+  const { inbox, notifications, currentUser, transactions } = useApp();
+  const inboxCount =
+    inbox.filter((r) => !r.processed && r.ownerId === currentUser.id).length +
+    transactions.filter((t) => t.status === "pending" && t.ownerId === currentUser.id).length;
+  const unread = notifications.filter((n) => !n.read && n.type !== "suggested_split").length;
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-50 flex w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]">

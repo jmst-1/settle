@@ -6,17 +6,23 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { computeDebts, isInternalPairDebt } from "@/lib/debts";
 import { debtMatchesExpanded, expandPairNames, pairsForCreator } from "@/lib/me";
 import type {
+  AlertSettings,
   AppNotification,
   Bill,
   BillItem,
+  CardTransaction,
   Contact,
   Group,
   InboxReceipt,
   Member,
+  MerchantRule,
   OcrResult,
   PayeePair,
 } from "@/lib/types";
-import type { ClientState } from "@/lib/data/memory";
+import { DEFAULT_ALERT_SETTINGS } from "@/lib/types";
+import type { ClientState, StoredGmailConnection } from "@/lib/data/memory";
+import { emailBackConfigured, gmailOAuthConfigured } from "@/lib/alerts/email-back";
+import { afterConfirm, afterDismiss, alwaysSkip } from "@/lib/alerts/learn";
 
 function admin() {
   const c = createAdminClient();
@@ -71,7 +77,14 @@ export async function getUser(id: string): Promise<Member | null> {
   const { data } = await sb.from("user_profiles").select("*").eq("id", id).maybeSingle();
   if (!data) return null;
   const token = await personalShareToken(id);
-  return mapProfile(data, token);
+  let email: string | undefined;
+  try {
+    const auth = await sb.auth.admin.getUserById(id);
+    email = auth.data.user?.email ?? undefined;
+  } catch {
+    /* demo / missing auth user */
+  }
+  return mapProfile(data, token, email);
 }
 
 export async function findUserByEmail(_email: string): Promise<Member | null> {
@@ -313,9 +326,83 @@ export async function clientState(userId: string): Promise<ClientState | null> {
     read: Boolean(n.read_at),
     forName: currentUser.name,
     recipientUserId: n.recipient_user_id,
+    type: n.type === "suggested_split" ? "suggested_split" : n.type === "paid" ? "paid" : undefined,
   }));
 
-  return { users, contacts, groups, pairs, bills, inbox, notifications, currentUser };
+  const { data: txnRows } = await sb
+    .from("card_transactions")
+    .select("*")
+    .eq("owner_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(80);
+  const { data: settingsRow } = await sb.from("alert_settings").select("*").eq("user_id", userId).maybeSingle();
+  const { data: gmailRow } = await sb
+    .from("gmail_connections")
+    .select("email, last_sync_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const { data: ruleRows } = await sb.from("merchant_rules").select("*").eq("owner_id", userId);
+
+  return {
+    users,
+    contacts,
+    groups,
+    pairs,
+    bills,
+    inbox,
+    notifications,
+    currentUser,
+    transactions: (txnRows ?? []).map(mapTxn),
+    alertSettings: mapSettings(settingsRow),
+    gmail: {
+      configured: gmailOAuthConfigured(),
+      connected: Boolean(gmailRow),
+      email: gmailRow?.email,
+      lastSyncAt: gmailRow?.last_sync_at ?? null,
+    },
+    merchantRules: (ruleRows ?? []).map(mapRule),
+    emailBackConfigured: emailBackConfigured(),
+  };
+}
+
+function mapSettings(row: Record<string, unknown> | null | undefined): AlertSettings {
+  if (!row) return { ...DEFAULT_ALERT_SETTINGS };
+  return {
+    amountThreshold: Number(row.amount_threshold ?? DEFAULT_ALERT_SETTINGS.amountThreshold),
+    diningOnly: row.dining_only !== false,
+    emailBack: Boolean(row.email_back),
+    enabled: row.enabled !== false,
+  };
+}
+
+function mapTxn(row: Record<string, unknown>): CardTransaction {
+  return {
+    id: row.id as string,
+    ownerId: row.owner_id as string,
+    gmailMessageId: row.gmail_message_id as string,
+    merchant: row.merchant as string,
+    merchantNorm: row.merchant_norm as string,
+    amount: Number(row.amount),
+    currency: (row.currency as string) || "SGD",
+    txnDate: String(row.txn_date ?? "").slice(0, 10),
+    category: row.category === "dining" ? "dining" : "other",
+    confidence: Number(row.confidence ?? 0),
+    sourceFrom: (row.source_from as string) || undefined,
+    status: row.status as CardTransaction["status"],
+    matchedBillId: (row.matched_bill_id as string) || undefined,
+    createdAt: row.created_at as string,
+  };
+}
+
+function mapRule(row: Record<string, unknown>): MerchantRule {
+  return {
+    id: row.id as string,
+    ownerId: row.owner_id as string,
+    merchantNorm: row.merchant_norm as string,
+    rule: row.rule === "never_split" ? "never_split" : "always_prompt",
+    dismissCount: Number(row.dismiss_count ?? 0),
+    confirmCount: Number(row.confirm_count ?? 0),
+  };
 }
 
 export async function setProfile(userId: string, name: string, paynow: string) {
@@ -527,6 +614,7 @@ export async function saveBill(
     createdAt?: string;
   },
   inboxIds?: string | string[],
+  transactionId?: string,
 ) {
   const bill = await persistBill(userId, input);
   const ids = (Array.isArray(inboxIds) ? inboxIds : inboxIds ? [inboxIds] : []).filter(Boolean);
@@ -538,6 +626,7 @@ export async function saveBill(
       .in("id", ids)
       .eq("owner_id", userId);
   }
+  if (transactionId) await convertTransaction(userId, transactionId, bill.id);
   return bill;
 }
 
@@ -781,7 +870,8 @@ export async function markNotificationsRead(userId: string) {
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("recipient_user_id", userId)
-    .is("read_at", null);
+    .is("read_at", null)
+    .neq("type", "suggested_split");
 }
 
 export async function claimToken(userId: string, token: string) {
@@ -885,6 +975,244 @@ export async function uncombinePayees(userId: string, pairId: string) {
   if (error) throw new Error(error.message || "Could not uncombine");
   if (!data) throw new Error("Pair not found");
   return clientState(userId);
+}
+
+export async function listBillsForUser(userId: string) {
+  const bills = await loadBills();
+  return bills.filter((b) => b.createdBy === userId);
+}
+
+export async function getAlertSettings(userId: string): Promise<AlertSettings> {
+  const sb = admin();
+  const { data } = await sb.from("alert_settings").select("*").eq("user_id", userId).maybeSingle();
+  return mapSettings(data);
+}
+
+export async function updateAlertSettings(userId: string, patch: Partial<AlertSettings>) {
+  const current = await getAlertSettings(userId);
+  const next: AlertSettings = { ...current, ...patch };
+  const sb = admin();
+  await sb.from("alert_settings").upsert({
+    user_id: userId,
+    amount_threshold: next.amountThreshold,
+    dining_only: next.diningOnly,
+    email_back: next.emailBack,
+    enabled: next.enabled,
+    updated_at: new Date().toISOString(),
+  });
+  return next;
+}
+
+export async function getGmailConnection(userId: string): Promise<StoredGmailConnection | null> {
+  const sb = admin();
+  const { data } = await sb.from("gmail_connections").select("*").eq("user_id", userId).maybeSingle();
+  if (!data) return null;
+  return {
+    userId: data.user_id,
+    email: data.email,
+    refreshTokenEnc: data.refresh_token_enc,
+    historyId: data.history_id,
+    watchExpiration: data.watch_expiration,
+    lastSyncAt: data.last_sync_at,
+  };
+}
+
+export async function listGmailConnections(): Promise<StoredGmailConnection[]> {
+  const sb = admin();
+  const { data } = await sb.from("gmail_connections").select("*");
+  return (data ?? []).map((row) => ({
+    userId: row.user_id,
+    email: row.email,
+    refreshTokenEnc: row.refresh_token_enc,
+    historyId: row.history_id,
+    watchExpiration: row.watch_expiration,
+    lastSyncAt: row.last_sync_at,
+  }));
+}
+
+export async function saveGmailConnection(row: StoredGmailConnection) {
+  const sb = admin();
+  await sb.from("gmail_connections").upsert({
+    user_id: row.userId,
+    email: row.email,
+    refresh_token_enc: row.refreshTokenEnc,
+    history_id: row.historyId ?? null,
+    watch_expiration: row.watchExpiration ?? null,
+    last_sync_at: row.lastSyncAt ?? null,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function deleteGmailConnection(userId: string) {
+  const sb = admin();
+  await sb.from("gmail_connections").delete().eq("user_id", userId);
+}
+
+export async function getTransaction(userId: string, id: string) {
+  const sb = admin();
+  const { data } = await sb
+    .from("card_transactions")
+    .select("*")
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  return data ? mapTxn(data) : null;
+}
+
+export async function findTransactionByMessage(userId: string, gmailMessageId: string) {
+  const sb = admin();
+  const { data } = await sb
+    .from("card_transactions")
+    .select("*")
+    .eq("owner_id", userId)
+    .eq("gmail_message_id", gmailMessageId)
+    .maybeSingle();
+  return data ? mapTxn(data) : null;
+}
+
+export async function insertTransaction(row: CardTransaction) {
+  const sb = admin();
+  const { data, error } = await sb
+    .from("card_transactions")
+    .insert({
+      id: row.id,
+      owner_id: row.ownerId,
+      gmail_message_id: row.gmailMessageId,
+      merchant: row.merchant,
+      merchant_norm: row.merchantNorm,
+      amount: row.amount,
+      currency: row.currency,
+      txn_date: row.txnDate,
+      category: row.category,
+      confidence: row.confidence,
+      source_from: row.sourceFrom ?? null,
+      status: row.status,
+      matched_bill_id: row.matchedBillId ?? null,
+    })
+    .select()
+    .single();
+  if (error || !data) throw new Error(error?.message || "Could not save transaction");
+  return mapTxn(data);
+}
+
+export async function updateTransaction(userId: string, id: string, patch: Partial<CardTransaction>) {
+  const sb = admin();
+  const fields: Record<string, unknown> = {};
+  if (patch.status) fields.status = patch.status;
+  if (patch.matchedBillId !== undefined) fields.matched_bill_id = patch.matchedBillId ?? null;
+  if (patch.merchant) fields.merchant = patch.merchant;
+  const { data, error } = await sb
+    .from("card_transactions")
+    .update(fields)
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .select()
+    .single();
+  if (error || !data) throw new Error(error?.message || "Transaction not found");
+  return mapTxn(data);
+}
+
+export async function getMerchantRule(userId: string, merchantNorm: string) {
+  const sb = admin();
+  const { data } = await sb
+    .from("merchant_rules")
+    .select("*")
+    .eq("owner_id", userId)
+    .eq("merchant_norm", merchantNorm)
+    .maybeSingle();
+  return data ? mapRule(data) : null;
+}
+
+export async function listMerchantRules(userId: string) {
+  const sb = admin();
+  const { data } = await sb.from("merchant_rules").select("*").eq("owner_id", userId);
+  return (data ?? []).map(mapRule);
+}
+
+export async function upsertMerchantRule(rule: MerchantRule) {
+  const sb = admin();
+  const { data, error } = await sb
+    .from("merchant_rules")
+    .upsert(
+      {
+        owner_id: rule.ownerId,
+        merchant_norm: rule.merchantNorm,
+        rule: rule.rule,
+        dismiss_count: rule.dismissCount,
+        confirm_count: rule.confirmCount,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "owner_id,merchant_norm" },
+    )
+    .select()
+    .single();
+  if (error || !data) throw new Error(error?.message || "Could not save merchant rule");
+  return mapRule(data);
+}
+
+export async function insertNotification(n: AppNotification) {
+  const sb = admin();
+  await sb.from("notifications").insert({
+    id: n.id,
+    recipient_user_id: n.recipientUserId ?? null,
+    type: n.type || "in_app",
+    payload: { text: n.text },
+    channel: n.type === "suggested_split" ? "in_app" : "in_app",
+  });
+}
+
+export async function markSuggestedRead(userId: string) {
+  const sb = admin();
+  await sb
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("recipient_user_id", userId)
+    .eq("type", "suggested_split")
+    .is("read_at", null);
+}
+
+export async function convertTransaction(userId: string, id: string, billId: string) {
+  const txn = await getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const next = await updateTransaction(userId, id, { status: "converted", matchedBillId: billId });
+  const existing = await getMerchantRule(userId, txn.merchantNorm);
+  await upsertMerchantRule(afterConfirm(existing, txn.merchantNorm, userId));
+  return next;
+}
+
+export async function dismissTransaction(userId: string, id: string) {
+  const txn = await getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const next = await updateTransaction(userId, id, { status: "dismissed" });
+  const existing = await getMerchantRule(userId, txn.merchantNorm);
+  await upsertMerchantRule(afterDismiss(existing, txn.merchantNorm, userId));
+  return next;
+}
+
+export async function undoTransaction(userId: string, id: string) {
+  const txn = await getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  return updateTransaction(userId, id, { status: "pending", matchedBillId: undefined });
+}
+
+export async function neverSplitTransaction(userId: string, id: string) {
+  const txn = await getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const next = await updateTransaction(userId, id, { status: "dismissed" });
+  const existing = await getMerchantRule(userId, txn.merchantNorm);
+  await upsertMerchantRule(alwaysSkip(existing, txn.merchantNorm, userId));
+  return next;
+}
+
+export async function matchTransaction(userId: string, id: string, billId: string) {
+  const txn = await getTransaction(userId, id);
+  if (!txn) throw new Error("Transaction not found");
+  const bill = await getBill(billId);
+  if (!bill) throw new Error("Bill not found");
+  const next = await updateTransaction(userId, id, { status: "matched", matchedBillId: billId });
+  const existing = await getMerchantRule(userId, txn.merchantNorm);
+  await upsertMerchantRule(afterConfirm(existing, txn.merchantNorm, userId));
+  return next;
 }
 
 export { paynowType };

@@ -13,14 +13,19 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type {
+  AlertSettings,
   AppNotification,
   Bill,
+  CardTransaction,
   Contact,
   Group,
+  GmailStatus,
   InboxReceipt,
   Member,
+  MerchantRule,
   PayeePair,
 } from "@/lib/types";
+import { DEFAULT_ALERT_SETTINGS } from "@/lib/types";
 
 export type AppState = {
   users: Member[];
@@ -31,6 +36,11 @@ export type AppState = {
   bills: Bill[];
   inbox: InboxReceipt[];
   notifications: AppNotification[];
+  transactions: CardTransaction[];
+  alertSettings: AlertSettings;
+  gmail: GmailStatus;
+  merchantRules: MerchantRule[];
+  emailBackConfigured: boolean;
   toast: string | null;
   loading: boolean;
 };
@@ -42,6 +52,7 @@ type AppStore = AppState & {
   saveBill: (
     bill: Omit<Bill, "debts" | "lockedAt" | "createdBy" | "createdAt" | "id"> & { id?: string },
     inboxIds?: string[],
+    transactionId?: string,
   ) => Promise<void>;
   updateBill: (
     id: string,
@@ -49,8 +60,14 @@ type AppStore = AppState & {
   ) => Promise<void>;
   settlePair: (from: string, to: string, creatorId: string) => Promise<void>;
   undoPair: (from: string, to: string, creatorId: string) => Promise<void>;
-  captureInbox: (label: string, imagePath?: string) => Promise<void>;
+  captureInbox: (label: string, imagePath?: string) => Promise<string | undefined>;
   markNotificationRead: () => Promise<void>;
+  markSuggestedRead: () => Promise<void>;
+  updateAlertSettings: (patch: Partial<AlertSettings>) => Promise<void>;
+  actOnTransaction: (id: string, action: "dismiss" | "undo" | "never" | "match", billId?: string) => Promise<void>;
+  simulateAlert: (body?: { merchant?: string; amount?: number; matchHandlebar?: boolean }) => Promise<void>;
+  syncGmail: () => Promise<void>;
+  disconnectGmail: () => Promise<void>;
   createGroup: (name: string) => Promise<void>;
   addGroupMember: (groupId: string, name: string, paynow?: string) => Promise<void>;
   combinePayees: (a: string, b: string, settler: string) => Promise<void>;
@@ -83,6 +100,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     bills: [],
     inbox: [],
     notifications: [],
+    transactions: [],
+    alertSettings: DEFAULT_ALERT_SETTINGS,
+    gmail: { configured: false, connected: false },
+    merchantRules: [],
+    emailBackConfigured: false,
     toast: null,
     loading: !publicPage,
   });
@@ -187,8 +209,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (
       bill: Omit<Bill, "debts" | "lockedAt" | "createdBy" | "createdAt" | "id"> & { id?: string },
       inboxIds?: string[],
+      transactionId?: string,
     ) => {
-      await post("/api/bills", { ...bill, inboxIds });
+      await post("/api/bills", { ...bill, inboxIds, transactionId });
     },
     [post],
   );
@@ -223,13 +246,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const captureInbox = useCallback(
     async (label: string, imagePath?: string) => {
-      await post("/api/inbox", { label, imagePath });
+      const data = await post("/api/inbox", { label, imagePath });
+      const items = data.inbox as InboxReceipt[] | undefined;
+      return items?.[0]?.id;
     },
     [post],
   );
 
   const markNotificationRead = useCallback(async () => {
     await post("/api/settle", { action: "read" });
+  }, [post]);
+
+  const markSuggestedRead = useCallback(async () => {
+    await post("/api/alerts/read", {});
+  }, [post]);
+
+  const updateAlertSettings = useCallback(
+    async (patch: Partial<AlertSettings>) => {
+      await fetch("/api/alerts/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }).then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not save settings");
+        apply(data);
+      });
+    },
+    [apply],
+  );
+
+  const actOnTransaction = useCallback(
+    async (id: string, action: "dismiss" | "undo" | "never" | "match", billId?: string) => {
+      await post(`/api/alerts/transactions/${id}`, { action, billId });
+    },
+    [post],
+  );
+
+  const simulateAlert = useCallback(
+    async (body?: { merchant?: string; amount?: number; matchHandlebar?: boolean }) => {
+      await post("/api/alerts/simulate", body ?? {});
+    },
+    [post],
+  );
+
+  const syncGmail = useCallback(async () => {
+    await post("/api/gmail/sync", {});
+  }, [post]);
+
+  const disconnectGmail = useCallback(async () => {
+    await post("/api/gmail/disconnect", {});
   }, [post]);
 
   const createGroup = useCallback(
@@ -288,6 +354,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       undoPair,
       captureInbox,
       markNotificationRead,
+      markSuggestedRead,
+      updateAlertSettings,
+      actOnTransaction,
+      simulateAlert,
+      syncGmail,
+      disconnectGmail,
       createGroup,
       addGroupMember,
       combinePayees,
@@ -307,6 +379,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       undoPair,
       captureInbox,
       markNotificationRead,
+      markSuggestedRead,
+      updateAlertSettings,
+      actOnTransaction,
+      simulateAlert,
+      syncGmail,
+      disconnectGmail,
       createGroup,
       addGroupMember,
       combinePayees,

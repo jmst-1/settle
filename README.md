@@ -25,6 +25,8 @@ Without Supabase keys the API uses an in-memory store (seeded Handlebar / PS.Caf
 
 OCR: upload a receipt photo, then `POST /api/ocr { path }`. Needs `ANTHROPIC_API_KEY`. HEIC is converted with `sharp`. You can always enter a bill manually.
 
+Bank alerts: connect Gmail in Settings (readonly). SplitTab only reads emails from known bank/card senders, then prompts in Inbox when a dining charge is at or above your threshold (default SGD 30). Apply `supabase/migrations/006_gmail_alerts.sql`. Demo mode can **Simulate bank alert** without Google keys.
+
 ```bash
 npm test
 npm run build

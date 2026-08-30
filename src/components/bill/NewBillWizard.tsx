@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Camera, ImageIcon, ListFilter, Pencil, Plus } from "lucide-react";
 import { Amt, Label, Perf, SectionHeader } from "@/components/ui/Typography";
@@ -10,7 +10,7 @@ import { nameColor } from "@/lib/colors";
 import { useApp } from "@/context/AppStore";
 import { expandOcr } from "@/lib/ocr";
 import { matchRosterName, rosterFor } from "@/lib/me";
-import type { Bill, BillItem, BillReceipt, InboxReceipt, OcrResult } from "@/lib/types";
+import type { Bill, BillItem, BillReceipt, CardTransaction, InboxReceipt, OcrResult } from "@/lib/types";
 
 type DraftReceipt = BillReceipt & { inboxId?: string };
 type Step = "upload" | "review" | "people" | "assign";
@@ -97,21 +97,59 @@ function isEqualSplit(items: BillItem[], names: string[]) {
   );
 }
 
-function loadInboxDrafts(sources: InboxReceipt[]) {
-  return sources.map((rx) => {
+function draftFromTxn(txn: CardTransaction): { receipt: DraftReceipt; items: BillItem[] } {
+  const id = newId();
+  const amount = Math.round(txn.amount * 100) / 100;
+  return {
+    receipt: {
+      id,
+      label: txn.merchant,
+      billDate: txn.txnDate,
+      discount: 0,
+      serviceCharge: 0,
+      tax: 0,
+      receiptTotal: amount,
+    },
+    items: [
+      {
+        name: txn.merchant,
+        price: amount,
+        assignee: null,
+        split: false,
+        splitWith: [],
+        receiptId: id,
+      },
+    ],
+  };
+}
+
+function loadInboxDrafts(sources: InboxReceipt[], txn?: CardTransaction) {
+  const drafts = sources.map((rx) => {
     if (rx.ocr) return draftFromOcr(rx.ocr, rx.label || rx.ocr.occasion, rx.id);
     const blank = blankDraft();
     blank.receipt.inboxId = rx.id;
     blank.receipt.label = rx.label || blank.receipt.label;
     return blank;
   });
+  if (!txn || drafts.length === 0) return drafts;
+  const first = drafts[0];
+  if (!first.receipt.receiptTotal) first.receipt.receiptTotal = txn.amount;
+  if (!first.receipt.billDate) first.receipt.billDate = txn.txnDate;
+  if (!first.receipt.label || first.receipt.label === "Receipt") first.receipt.label = txn.merchant;
+  if (first.items.length === 1 && !first.items[0].name && first.items[0].price === 0) {
+    first.items[0].name = txn.merchant;
+    first.items[0].price = txn.amount;
+  }
+  return drafts;
 }
 
 export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const router = useRouter();
   const params = useSearchParams();
-  const { saveBill, updateBill, currentUser, contacts, addContact, inbox } = useApp();
+  const { saveBill, updateBill, currentUser, contacts, addContact, inbox, transactions } = useApp();
   const mode = params.get("mode") || "scan";
+  const txnId = params.get("txn");
+  const txn = transactions.find((t) => t.id === txnId);
   const rxIds = (params.get("rx") || "")
     .split(",")
     .map((s) => s.trim())
@@ -123,10 +161,12 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const initialDrafts = editBill
     ? draftsFromBill(editBill)
     : sourceReceipts.length > 0
-      ? loadInboxDrafts(sourceReceipts)
-      : mode === "manual"
-        ? [blankDraft()]
-        : [];
+      ? loadInboxDrafts(sourceReceipts, txn)
+      : txn
+        ? [draftFromTxn(txn)]
+        : mode === "manual"
+          ? [blankDraft()]
+          : [];
 
   const labels = sourceReceipts.map((r) => r.label).filter(Boolean);
   const sameLabel = labels.length > 0 && labels.every((l) => l === labels[0]);
@@ -137,12 +177,13 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const [ocrError, setOcrError] = useState("");
 
   const [step, setStep] = useState<Step>(
-    initialDrafts.length || editBill ? "review" : mode === "manual" ? "review" : "upload",
+    initialDrafts.length || editBill || txn ? "review" : mode === "manual" ? "review" : "upload",
   );
   const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState(sourceReceipts.length > 0 || Boolean(editBill));
+  const [scanned, setScanned] = useState(sourceReceipts.length > 0 || Boolean(editBill) || Boolean(txn));
   const [occasion, setOccasion] = useState(
     editBill?.occasion ||
+      txn?.merchant ||
       (sameLabel ? labels[0] : sourceReceipts[0]?.label || sourceReceipts[0]?.ocr?.occasion || ""),
   );
   const [billDate, setBillDate] = useState(() => {
@@ -178,8 +219,23 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
   const allAssigned =
     items.length > 0 && items.every((it) => (it.split && it.splitWith.length) || it.assignee);
   const perHead = names.length ? derivedTotal / names.length : 0;
-  const fromInbox = sourceReceipts.length > 0;
+  const fromInbox = sourceReceipts.length > 0 || mode === "alert" || Boolean(txn);
   const combined = receipts.length > 1;
+
+  useEffect(() => {
+    if (!txn || editBill) return;
+    if (receipts.length > 0) {
+      if (step === "upload") setStep("review");
+      return;
+    }
+    const draft = draftFromTxn(txn);
+    setReceipts([draft.receipt]);
+    setItems(draft.items);
+    setOccasion((prev) => prev || txn.merchant);
+    setBillDate((prev) => prev || txn.txnDate);
+    setScanned(true);
+    setStep("review");
+  }, [txn, editBill, receipts.length, step]);
 
   const patchReceipt = (id: string, patch: Partial<DraftReceipt>) => {
     setReceipts((p) => p.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -259,7 +315,7 @@ export function NewBillWizard({ editBill }: { editBill?: Bill }) {
     };
     const inboxIds = receipts.map((r) => r.inboxId).filter((id): id is string => Boolean(id));
     if (editBill) await updateBill(editBill.id, payload);
-    else await saveBill(payload, inboxIds);
+    else await saveBill(payload, inboxIds, txn?.id);
     router.push(editBill ? `/bills/${editBill.id}` : "/");
   };
 

@@ -6,7 +6,9 @@ function isPublic(pathname: string) {
   if (pathname === "/login") return true;
   if (pathname.startsWith("/auth")) return true;
   if (pathname.startsWith("/api/auth")) return true;
-  if (pathname.startsWith("/api/portal")) return true;
+  if (pathname.startsWith("/api/gmail/push")) return true;
+  if (pathname.startsWith("/api/gmail/sync")) return true;
+  if (pathname.startsWith("/api/gmail/callback")) return true;
   if (pathname.startsWith("/settle/")) return true;
   if (pathname === "/manifest.json" || pathname === "/manifest.webmanifest") return true;
   if (pathname.startsWith("/sw") || pathname.startsWith("/workbox") || pathname.startsWith("/worker")) return true;
